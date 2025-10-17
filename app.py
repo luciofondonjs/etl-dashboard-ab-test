@@ -180,12 +180,7 @@ def load_env() -> None:
         from dotenv import load_dotenv  # type: ignore
     except Exception:
         return
-    # Primero intenta cargar .env desde la carpeta streamlit/
-    streamlit_env = Path(__file__).resolve().parent / ".env"
-    if streamlit_env.exists():
-        load_dotenv(dotenv_path=streamlit_env)
-        return
-    # Fallback: cargar .env desde el raíz del proyecto
+    # Cargar exclusivamente .env desde el raíz del proyecto
     load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 
 
@@ -213,7 +208,7 @@ def run_ui():
     # Sidebar con configuración básica
     with st.sidebar:
         st.header("⚙️ Configuración")
-        st.caption("Las credenciales se leen desde streamlit/.env (fallback al raíz del proyecto si no existe).")
+        st.caption("Las credenciales se leen desde ./.env en el raíz del proyecto.")
 
         use_cumulative = st.toggle(
             "📈 Usar acumulados (cumulativeRaw)",
