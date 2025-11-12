@@ -454,6 +454,7 @@ def run_ui():
                     
                     # Inicializar mapeo de filtros (se usará más adelante)
                     event_filters_map_quick = {}
+                    metrics_to_process = []  # Inicializar siempre
                     
                     # Importar métricas de baggage
                     try:
@@ -547,37 +548,52 @@ def run_ui():
                                 help="Eventos individuales"
                             )
                         
-                        # Expandir métricas a eventos individuales y crear mapeo de filtros
-                        selected_events_quick = []
-                        # event_filters_map_quick ya está inicializado arriba
-                        
-                        # Agregar eventos de métricas seleccionadas
+                        # Procesar cada métrica seleccionada por separado
                         for metric_name in selected_metrics_quick:
                             metric_config = PREDEFINED_METRICS_QUICK[metric_name]
+                            metric_events = []
+                            metric_filters_map = {}
+                            
                             if isinstance(metric_config, list):
                                 # Métrica simple sin filtros adicionales
-                                selected_events_quick.extend(metric_config)
+                                metric_events = metric_config
                             elif isinstance(metric_config, dict) and 'events' in metric_config:
                                 # Métrica con filtros adicionales
                                 metric_events = metric_config['events']
                                 metric_filters = metric_config.get('filters', [])
                                 
-                                # Agregar eventos
-                                selected_events_quick.extend(metric_events)
-                                
                                 # Mapear cada evento de esta métrica a sus filtros
                                 for event in metric_events:
-                                    if event not in event_filters_map_quick:
-                                        event_filters_map_quick[event] = []
+                                    if event not in metric_filters_map:
+                                        metric_filters_map[event] = []
                                     # Agregar los filtros de esta métrica al evento
                                     if metric_filters:
                                         if isinstance(metric_filters, list):
-                                            event_filters_map_quick[event].extend(metric_filters)
+                                            metric_filters_map[event].extend(metric_filters)
                                         else:
-                                            event_filters_map_quick[event].append(metric_filters)
+                                            metric_filters_map[event].append(metric_filters)
+                            
+                            if metric_events:
+                                metrics_to_process.append({
+                                    'name': metric_name,
+                                    'events': metric_events,
+                                    'filters': metric_filters_map
+                                })
                         
-                        # Agregar eventos individuales seleccionados (sin filtros adicionales)
-                        selected_events_quick.extend(selected_events_raw_quick)
+                        # Agregar eventos individuales como una "métrica" adicional si están seleccionados
+                        if selected_events_raw_quick:
+                            metrics_to_process.append({
+                                'name': 'Eventos Individuales',
+                                'events': selected_events_raw_quick,
+                                'filters': {}
+                            })
+                        
+                        # Para compatibilidad con el código existente, también crear lista combinada
+                        selected_events_quick = []
+                        event_filters_map_quick = {}
+                        for metric_info in metrics_to_process:
+                            selected_events_quick.extend(metric_info['events'])
+                            event_filters_map_quick.update(metric_info['filters'])
                         
                         # Eliminar duplicados manteniendo el orden
                         seen_quick = set()
@@ -590,13 +606,20 @@ def run_ui():
                         
                     except ImportError:
                         # Si no están definidas las métricas, usar solo eventos
-                        selected_events_quick = st.multiselect(
+                        selected_events_raw_quick = st.multiselect(
                             "Eventos a analizar:",
                             options=AVAILABLE_EVENTS,
                             default=["homepage_dom_loaded"],
                             key="events_quick",
                             help="Selecciona los eventos que quieres analizar"
                         )
+                        if selected_events_raw_quick:
+                            metrics_to_process.append({
+                                'name': 'Eventos Individuales',
+                                'events': selected_events_raw_quick,
+                                'filters': {}
+                            })
+                        selected_events_quick = selected_events_raw_quick
                     
                     # Botón para ejecutar análisis rápido
                     col1, col2, col3 = st.columns([1, 1, 1])
@@ -605,12 +628,12 @@ def run_ui():
                             "🚀 Ejecutar Análisis de este Experimento",
                             use_container_width=True,
                             type="primary",
-                            disabled=len(selected_events_quick) == 0,
+                            disabled=len(metrics_to_process) == 0,
                             key="btn_run_quick"
                         )
                     
                     # Ejecutar análisis si se presiona el botón
-                    if btn_run_quick and selected_events_quick:
+                    if btn_run_quick and metrics_to_process:
                         with st.spinner("Ejecutando análisis..."):
                             try:
                                 # Obtener fechas del experimento
@@ -626,73 +649,122 @@ def run_ui():
                                 # Obtener variantes del experimento para mostrar información
                                 experiment_variants = get_experiment_variants(experiment_id_quick)
                                 
-                                # Ejecutar pipeline dinámico
-                                # Preparar argumentos comunes
-                                pipeline_kwargs = {
-                                    'start_date': start_date_quick,
-                                    'end_date': end_date_quick,
-                                    'experiment_id': experiment_id_quick,
-                                    'device': device_quick,
-                                    'culture': culture_quick,
-                                    'event_list': selected_events_quick,
-                                    'conversion_window': conversion_window_quick
-                                }
+                                # Diccionario para almacenar resultados por métrica
+                                metrics_results = {}
                                 
-                                # Agregar event_filters_map solo si existe y no está vacío
-                                if event_filters_map_quick:
-                                    pipeline_kwargs['event_filters_map'] = event_filters_map_quick
+                                # Procesar cada métrica por separado
+                                progress_bar = st.progress(0)
+                                total_metrics = len(metrics_to_process)
                                 
-                                if use_cumulative:
-                                    df_quick = final_pipeline_cumulative(**pipeline_kwargs)
-                                else:
-                                    df_quick = final_pipeline(**pipeline_kwargs)
+                                for idx, metric_info in enumerate(metrics_to_process):
+                                    metric_name = metric_info['name']
+                                    metric_events = metric_info['events']
+                                    metric_filters = metric_info['filters']
+                                    
+                                    # Actualizar progreso
+                                    progress_bar.progress((idx + 1) / total_metrics)
+                                    
+                                    # Ejecutar pipeline para esta métrica
+                                    pipeline_kwargs = {
+                                        'start_date': start_date_quick,
+                                        'end_date': end_date_quick,
+                                        'experiment_id': experiment_id_quick,
+                                        'device': device_quick,
+                                        'culture': culture_quick,
+                                        'event_list': metric_events,
+                                        'conversion_window': conversion_window_quick
+                                    }
+                                    
+                                    # Agregar event_filters_map solo si existe y no está vacío
+                                    if metric_filters:
+                                        pipeline_kwargs['event_filters_map'] = metric_filters
+                                    
+                                    try:
+                                        if use_cumulative:
+                                            df_metric = final_pipeline_cumulative(**pipeline_kwargs)
+                                        else:
+                                            df_metric = final_pipeline(**pipeline_kwargs)
+                                        
+                                        # Guardar resultado de esta métrica
+                                        metrics_results[metric_name] = df_metric
+                                    except Exception as e:
+                                        st.warning(f"⚠️ Error procesando métrica '{metric_name}': {e}")
+                                        metrics_results[metric_name] = pd.DataFrame()
                                 
-                                # Mostrar resultados
-                                st.success(f"✅ Análisis completado: {len(df_quick)} registros")
+                                progress_bar.empty()
+                                
+                                # Guardar todos los resultados en session_state
+                                st.session_state['metrics_results'] = metrics_results
+                                st.session_state['analysis_experiment_id'] = experiment_id_quick
+                                st.session_state['analysis_experiment_name'] = selected_row.get('name', experiment_id_quick)
+                                
+                                # Mostrar resumen de resultados
+                                st.success(f"✅ Análisis completado: {len(metrics_results)} métrica(s) procesada(s)")
                                 
                                 # Información sobre variantes detectadas
                                 if experiment_variants:
                                     st.info(f"🎯 **Variantes detectadas:** {', '.join(experiment_variants)}")
                                 
-                                # Métricas de resumen
-                                if not df_quick.empty:
-                                    col1, col2, col3, col4 = st.columns(4)
-                                    with col1:
-                                        st.metric("Total Registros", len(df_quick))
-                                    with col2:
-                                        if 'Variant' in df_quick.columns:
-                                            variants = df_quick['Variant'].nunique()
-                                            st.metric("Variantes", variants)
-                                    with col3:
-                                        if 'Funnel Stage' in df_quick.columns:
-                                            stages = df_quick['Funnel Stage'].nunique()
-                                            st.metric("Etapas Funnel", stages)
-                                    with col4:
-                                        if 'Event Count' in df_quick.columns:
-                                            total_events = df_quick['Event Count'].sum()
-                                            st.metric("Total Eventos", f"{total_events:,.0f}")
+                                # Mostrar resumen por métrica
+                                st.markdown("### 📊 Resumen por Métrica")
+                                summary_data = []
+                                for metric_name, df_metric in metrics_results.items():
+                                    if not df_metric.empty:
+                                        summary_data.append({
+                                            'Métrica': metric_name,
+                                            'Registros': len(df_metric),
+                                            'Variantes': df_metric['Variant'].nunique() if 'Variant' in df_metric.columns else 0,
+                                            'Etapas': df_metric['Funnel Stage'].nunique() if 'Funnel Stage' in df_metric.columns else 0,
+                                            'Total Eventos': f"{df_metric['Event Count'].sum():,.0f}" if 'Event Count' in df_metric.columns else "0"
+                                        })
                                 
-                                # Guardar DataFrame en session_state para análisis estadístico
-                                st.session_state['analysis_df'] = df_quick
-                                st.session_state['analysis_experiment_id'] = experiment_id_quick
-                                st.session_state['analysis_experiment_name'] = selected_row.get('name', experiment_id_quick)
+                                if summary_data:
+                                    summary_df = pd.DataFrame(summary_data)
+                                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
                                 
-                                # Mostrar tabla
-                                st.dataframe(df_quick, use_container_width=True)
-                                
-                                # Botón de descarga
-                                col1, col2, col3 = st.columns([1, 1, 1])
-                                with col2:
-                                    excel_buffer_quick = BytesIO()
-                                    df_quick.to_excel(excel_buffer_quick, index=False, engine='openpyxl')
-                                    excel_buffer_quick.seek(0)
-                                    st.download_button(
-                                        label="📥 Descargar Excel",
-                                        data=excel_buffer_quick.getvalue(),
-                                        file_name=f"ab_test_results_{experiment_id_quick}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        use_container_width=True
-                                    )
+                                # Mostrar resultados por métrica en tabs
+                                if len(metrics_results) > 1:
+                                    metric_tabs = st.tabs([f"📊 {name}" for name in metrics_results.keys()])
+                                    for tab, (metric_name, df_metric) in zip(metric_tabs, metrics_results.items()):
+                                        with tab:
+                                            if not df_metric.empty:
+                                                st.markdown(f"### {metric_name}")
+                                                st.dataframe(df_metric, use_container_width=True)
+                                                
+                                                # Botón de descarga individual
+                                                excel_buffer = BytesIO()
+                                                df_metric.to_excel(excel_buffer, index=False, engine='openpyxl')
+                                                excel_buffer.seek(0)
+                                                st.download_button(
+                                                    label=f"📥 Descargar {metric_name}",
+                                                    data=excel_buffer.getvalue(),
+                                                    file_name=f"ab_test_{metric_name.replace(' ', '_')}_{experiment_id_quick}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                    key=f"download_{metric_name}"
+                                                )
+                                            else:
+                                                st.warning(f"No hay datos disponibles para la métrica '{metric_name}'")
+                                else:
+                                    # Si solo hay una métrica, mostrar directamente
+                                    metric_name = list(metrics_results.keys())[0]
+                                    df_metric = metrics_results[metric_name]
+                                    
+                                    if not df_metric.empty:
+                                        st.dataframe(df_metric, use_container_width=True)
+                                        
+                                        # Botón de descarga
+                                        col1, col2, col3 = st.columns([1, 1, 1])
+                                        with col2:
+                                            excel_buffer_quick = BytesIO()
+                                            df_metric.to_excel(excel_buffer_quick, index=False, engine='openpyxl')
+                                            excel_buffer_quick.seek(0)
+                                            st.download_button(
+                                                label="📥 Descargar Excel",
+                                                data=excel_buffer_quick.getvalue(),
+                                                file_name=f"ab_test_results_{experiment_id_quick}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                use_container_width=True
+                                            )
                                     
                             except Exception as e:
                                 st.error(f"❌ Error ejecutando análisis: {e}")
@@ -734,8 +806,11 @@ def run_ui():
         st.subheader("📊 Análisis Estadístico A/B/N")
         st.caption("Análisis estadístico completo con p-values, lift, P2BB y significancia")
         
-        # Verificar si hay datos disponibles
-        if 'analysis_df' not in st.session_state or st.session_state['analysis_df'] is None or st.session_state['analysis_df'].empty:
+        # Verificar si hay datos disponibles (nuevo formato con múltiples métricas o formato antiguo)
+        has_metrics_results = 'metrics_results' in st.session_state and st.session_state['metrics_results']
+        has_single_df = 'analysis_df' in st.session_state and st.session_state['analysis_df'] is not None and not st.session_state['analysis_df'].empty
+        
+        if not has_metrics_results and not has_single_df:
             st.info("""
             ℹ️ **No hay datos disponibles para análisis estadístico**
             
@@ -745,26 +820,67 @@ def run_ui():
             3. Los resultados estarán disponibles aquí para análisis estadístico
             """)
         else:
-            df_analysis = st.session_state['analysis_df']
             experiment_id_stat = st.session_state.get('analysis_experiment_id', 'N/A')
             experiment_name_stat = st.session_state.get('analysis_experiment_name', 'N/A')
             
-            # Mostrar información del experimento
-            st.markdown(f"""
-            <div style="background: linear-gradient(90deg, #1B365D 0%, #4A6489 100%); 
-                        border: 2px solid #3CCFE7; 
-                        border-radius: 12px; 
-                        padding: 20px; 
-                        margin: 20px 0; 
-                        text-align: center;">
-                <h3 style="color: white; margin: 0; font-size: 1.3em;">
-                    🧪 {experiment_name_stat} ({experiment_id_stat})
-                </h3>
-                <p style="color: #E0E0E0; margin: 10px 0 0 0;">
-                    Total de registros: {len(df_analysis):,}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            # Determinar qué métrica(s) analizar
+            if has_metrics_results:
+                # Nuevo formato: múltiples métricas
+                metrics_results = st.session_state['metrics_results']
+                available_metrics = [name for name, df in metrics_results.items() if df is not None and not df.empty]
+                
+                if not available_metrics:
+                    st.warning("⚠️ No hay métricas con datos disponibles para análisis")
+                else:
+                    # Selector de métrica
+                    if len(available_metrics) > 1:
+                        selected_metric_name = st.selectbox(
+                            "📊 Selecciona la métrica a analizar:",
+                            options=available_metrics,
+                            key="selected_metric_statistical",
+                            help="Elige una métrica de la lista para realizar el análisis estadístico"
+                        )
+                    else:
+                        selected_metric_name = available_metrics[0]
+                    
+                    df_analysis = metrics_results[selected_metric_name]
+                    
+                    # Mostrar información de la métrica seleccionada
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(90deg, #1B365D 0%, #4A6489 100%); 
+                                border: 2px solid #3CCFE7; 
+                                border-radius: 12px; 
+                                padding: 20px; 
+                                margin: 20px 0; 
+                                text-align: center;">
+                        <h3 style="color: white; margin: 0; font-size: 1.3em;">
+                            🧪 {experiment_name_stat} ({experiment_id_stat})
+                        </h3>
+                        <p style="color: #E0E0E0; margin: 10px 0 0 0;">
+                            📊 Métrica: <strong>{selected_metric_name}</strong> | Total de registros: {len(df_analysis):,}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                # Formato antiguo: un solo DataFrame
+                df_analysis = st.session_state['analysis_df']
+                
+                # Mostrar información del experimento
+                st.markdown(f"""
+                <div style="background: linear-gradient(90deg, #1B365D 0%, #4A6489 100%); 
+                            border: 2px solid #3CCFE7; 
+                            border-radius: 12px; 
+                            padding: 20px; 
+                            margin: 20px 0; 
+                            text-align: center;">
+                    <h3 style="color: white; margin: 0; font-size: 1.3em;">
+                        🧪 {experiment_name_stat} ({experiment_id_stat})
+                    </h3>
+                    <p style="color: #E0E0E0; margin: 10px 0 0 0;">
+                        Total de registros: {len(df_analysis):,}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
             
             # Verificar si tiene Funnel Stage
             if 'Funnel Stage' in df_analysis.columns:
