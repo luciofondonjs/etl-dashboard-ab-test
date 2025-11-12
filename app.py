@@ -464,7 +464,11 @@ def run_ui():
                             WCR_BAGGAGE,
                             WCR_BAGGAGE_VUELA_LIGERO,
                             CABIN_BAG_A2C,
-                            CHECKED_BAG_A2C
+                            CABIN_BAG_A2C_DB,
+                            CHECKED_BAG_A2C,
+                            CHECKED_BAG_A2C_DB,
+                            NSR_BAGGAGE_VUELA_LIGERO,
+                            NSR_BAGGAGE_VUELA_LIGERO_DB
                         )
                         
                         # Usar las mismas métricas predefinidas
@@ -474,46 +478,119 @@ def run_ui():
                             "💰 WCR Baggage (Website Conversion Rate)": WCR_BAGGAGE,
                             "✈️ WCR Baggage Vuela Ligero": WCR_BAGGAGE_VUELA_LIGERO,
                             "🎒 Cabin Bag A2C": CABIN_BAG_A2C,
-                            "🧳 Checked Bag A2C": CHECKED_BAG_A2C
+                            "🎒 Cabin Bag A2C DB": CABIN_BAG_A2C_DB,
+                            "🧳 Checked Bag A2C": CHECKED_BAG_A2C,
+                            "🧳 Checked Bag A2C DB": CHECKED_BAG_A2C_DB,
+                            "🎒 NSR Baggage Vuela Ligero (Next Step Rate)": NSR_BAGGAGE_VUELA_LIGERO,
+                            "🎒 NSR Baggage Vuela Ligero DB (Next Step Rate)": NSR_BAGGAGE_VUELA_LIGERO_DB
                         }
                         
                         # Mostrar información de métricas disponibles
                         with st.expander("📚 Ver Métricas Disponibles", expanded=False):
+                            # Función auxiliar para extraer nombre de evento de tupla
+                            def get_event_name(event_item):
+                                if isinstance(event_item, tuple) and len(event_item) > 0:
+                                    return event_item[0]
+                                elif isinstance(event_item, str):
+                                    return event_item
+                                return "-"
+                            
+                            # Función auxiliar para obtener filtros de un evento
+                            def get_event_filters(event_item):
+                                if isinstance(event_item, tuple) and len(event_item) >= 2:
+                                    # Formato nuevo: ('evento', [filtros])
+                                    filters_list = event_item[1]
+                                    if isinstance(filters_list, list):
+                                        return f"{len(filters_list)} filtro(s)" if filters_list else "Ninguno"
+                                    return "Ninguno"
+                                elif isinstance(event_item, tuple) and len(event_item) == 1:
+                                    # Formato antiguo: ('evento',) - sin filtros
+                                    return "Ninguno"
+                                elif isinstance(event_item, str):
+                                    return "Ninguno"
+                                return "Ninguno"
+                            
+                            # Función auxiliar para obtener descripción de filtros más detallada
+                            def get_filters_description(metric_events):
+                                if not metric_events:
+                                    return "Ninguno"
+                                
+                                filters_info = []
+                                for event_item in metric_events:
+                                    if isinstance(event_item, tuple) and len(event_item) >= 2:
+                                        filters_list = event_item[1]
+                                        if isinstance(filters_list, list) and filters_list:
+                                            filters_info.append(f"{len(filters_list)} filtro(s)")
+                                        else:
+                                            filters_info.append("Ninguno")
+                                    else:
+                                        filters_info.append("Ninguno")
+                                
+                                # Si todos tienen los mismos filtros, simplificar
+                                if len(set(filters_info)) == 1:
+                                    return filters_info[0] if filters_info[0] != "Ninguno" else "Ninguno"
+                                else:
+                                    return f"Variados ({', '.join(set(filters_info))})"
+                            
                             metrics_info_quick = [
                                 {
                                     "Métrica": "🎒 NSR Baggage",
-                                    "Evento Inicial": NSR_BAGGAGE[0] if isinstance(NSR_BAGGAGE, list) else NSR_BAGGAGE.get('events', [])[0],
-                                    "Evento Final": NSR_BAGGAGE[1] if isinstance(NSR_BAGGAGE, list) else NSR_BAGGAGE.get('events', [])[1] if len(NSR_BAGGAGE.get('events', [])) > 1 else "-",
+                                    "Evento Inicial": get_event_name(NSR_BAGGAGE.get('events', [])[0]) if NSR_BAGGAGE.get('events') else "-",
+                                    "Evento Final": get_event_name(NSR_BAGGAGE.get('events', [])[1]) if len(NSR_BAGGAGE.get('events', [])) > 1 else "-",
                                     "Filtros": "Ninguno"
                                 },
                                 {
                                     "Métrica": "🎒 NSR Baggage DB",
-                                    "Evento Inicial": NSR_BAGGAGE_DB.get('events', [])[0] if len(NSR_BAGGAGE_DB.get('events', [])) > 0 else "-",
-                                    "Evento Final": NSR_BAGGAGE_DB.get('events', [])[1] if len(NSR_BAGGAGE_DB.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB"
+                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_DB.get('events', [])[0]) if NSR_BAGGAGE_DB.get('events') else "-",
+                                    "Evento Final": get_event_name(NSR_BAGGAGE_DB.get('events', [])[1]) if len(NSR_BAGGAGE_DB.get('events', [])) > 1 else "-",
+                                    "Filtros": "DB (ambos eventos)"
+                                },
+                                {
+                                    "Métrica": "✈️ NSR Baggage Vuela Ligero",
+                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])[0]) if NSR_BAGGAGE_VUELA_LIGERO.get('events') else "-",
+                                    "Evento Final": get_event_name(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])[1]) if len(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
+                                    "Filtros": "Ninguno"
+                                },
+                                {
+                                    "Métrica": "✈️ NSR Baggage Vuela Ligero DB",
+                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])[0]) if NSR_BAGGAGE_VUELA_LIGERO_DB.get('events') else "-",
+                                    "Evento Final": get_event_name(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])[1]) if len(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])) > 1 else "-",
+                                    "Filtros": "DB (ambos eventos)"
                                 },
                                 {
                                     "Métrica": "💰 WCR Baggage",
-                                    "Evento Inicial": WCR_BAGGAGE[0] if isinstance(WCR_BAGGAGE, list) else WCR_BAGGAGE.get('events', [])[0],
-                                    "Evento Final": WCR_BAGGAGE[1] if isinstance(WCR_BAGGAGE, list) else WCR_BAGGAGE.get('events', [])[1] if len(WCR_BAGGAGE.get('events', [])) > 1 else "-",
+                                    "Evento Inicial": get_event_name(WCR_BAGGAGE.get('events', [])[0]) if WCR_BAGGAGE.get('events') else "-",
+                                    "Evento Final": get_event_name(WCR_BAGGAGE.get('events', [])[1]) if len(WCR_BAGGAGE.get('events', [])) > 1 else "-",
                                     "Filtros": "Ninguno"
                                 },
                                 {
                                     "Métrica": "✈️ WCR Vuela Ligero",
-                                    "Evento Inicial": WCR_BAGGAGE_VUELA_LIGERO[0] if isinstance(WCR_BAGGAGE_VUELA_LIGERO, list) else WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[0],
-                                    "Evento Final": WCR_BAGGAGE_VUELA_LIGERO[1] if isinstance(WCR_BAGGAGE_VUELA_LIGERO, list) else WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[1] if len(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
+                                    "Evento Inicial": get_event_name(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[0]) if WCR_BAGGAGE_VUELA_LIGERO.get('events') else "-",
+                                    "Evento Final": get_event_name(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[1]) if len(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
                                     "Filtros": "Ninguno"
                                 },
                                 {
                                     "Métrica": "🎒 Cabin Bag A2C",
-                                    "Evento Inicial": CABIN_BAG_A2C.get('events', [])[0] if len(CABIN_BAG_A2C.get('events', [])) > 0 else "-",
-                                    "Evento Final": CABIN_BAG_A2C.get('events', [])[1] if len(CABIN_BAG_A2C.get('events', [])) > 1 else "-",
+                                    "Evento Inicial": get_event_name(CABIN_BAG_A2C.get('events', [])[0]) if CABIN_BAG_A2C.get('events') else "-",
+                                    "Evento Final": get_event_name(CABIN_BAG_A2C.get('events', [])[1]) if len(CABIN_BAG_A2C.get('events', [])) > 1 else "-",
+                                    "Filtros": "cabin_bag (evento final)"
+                                },
+                                {
+                                    "Métrica": "🎒 Cabin Bag A2C DB",
+                                    "Evento Inicial": get_event_name(CABIN_BAG_A2C_DB.get('events', [])[0]) if CABIN_BAG_A2C_DB.get('events') else "-",
+                                    "Evento Final": get_event_name(CABIN_BAG_A2C_DB.get('events', [])[1]) if len(CABIN_BAG_A2C_DB.get('events', [])) > 1 else "-",
                                     "Filtros": "DB + cabin_bag"
                                 },
                                 {
                                     "Métrica": "🧳 Checked Bag A2C",
-                                    "Evento Inicial": CHECKED_BAG_A2C.get('events', [])[0] if len(CHECKED_BAG_A2C.get('events', [])) > 0 else "-",
-                                    "Evento Final": CHECKED_BAG_A2C.get('events', [])[1] if len(CHECKED_BAG_A2C.get('events', [])) > 1 else "-",
+                                    "Evento Inicial": get_event_name(CHECKED_BAG_A2C.get('events', [])[0]) if CHECKED_BAG_A2C.get('events') else "-",
+                                    "Evento Final": get_event_name(CHECKED_BAG_A2C.get('events', [])[1]) if len(CHECKED_BAG_A2C.get('events', [])) > 1 else "-",
+                                    "Filtros": "checked_bag (evento final)"
+                                },
+                                {
+                                    "Métrica": "🧳 Checked Bag A2C DB",
+                                    "Evento Inicial": get_event_name(CHECKED_BAG_A2C_DB.get('events', [])[0]) if CHECKED_BAG_A2C_DB.get('events') else "-",
+                                    "Evento Final": get_event_name(CHECKED_BAG_A2C_DB.get('events', [])[1]) if len(CHECKED_BAG_A2C_DB.get('events', [])) > 1 else "-",
                                     "Filtros": "DB + checked_bag"
                                 }
                             ]
@@ -554,24 +631,53 @@ def run_ui():
                             metric_events = []
                             metric_filters_map = {}
                             
-                            if isinstance(metric_config, list):
-                                # Métrica simple sin filtros adicionales
-                                metric_events = metric_config
-                            elif isinstance(metric_config, dict) and 'events' in metric_config:
-                                # Métrica con filtros adicionales
-                                metric_events = metric_config['events']
-                                metric_filters = metric_config.get('filters', [])
+                            # Nuevo formato: {'events': [('event1', [filter1, filter2]), ('event2', [filter1])]}
+                            # Siempre tuplas: ('evento', [lista_de_filtros])
+                            if isinstance(metric_config, dict) and 'events' in metric_config:
+                                events_list = metric_config['events']
                                 
-                                # Mapear cada evento de esta métrica a sus filtros
-                                for event in metric_events:
-                                    if event not in metric_filters_map:
-                                        metric_filters_map[event] = []
-                                    # Agregar los filtros de esta métrica al evento
-                                    if metric_filters:
-                                        if isinstance(metric_filters, list):
-                                            metric_filters_map[event].extend(metric_filters)
-                                        else:
-                                            metric_filters_map[event].append(metric_filters)
+                                # Verificar si es el nuevo formato (tuplas con lista de filtros)
+                                if events_list:
+                                    first_item = events_list[0]
+                                    
+                                    # Nuevo formato: tupla con ('evento', [filtros])
+                                    if isinstance(first_item, tuple) and len(first_item) >= 2:
+                                        # Formato: ('evento', [filtros])
+                                        for event_tuple in events_list:
+                                            if isinstance(event_tuple, tuple) and len(event_tuple) >= 2:
+                                                event_name = event_tuple[0]
+                                                event_filters = event_tuple[1] if isinstance(event_tuple[1], list) else []
+                                                
+                                                metric_events.append(event_name)
+                                                
+                                                # Mapear filtros específicos para este evento
+                                                if event_filters:
+                                                    metric_filters_map[event_name] = event_filters
+                                                # Si la lista está vacía, no agregar al mapa (sin filtros adicionales)
+                                    
+                                    elif isinstance(first_item, tuple) and len(first_item) == 1:
+                                        # Formato antiguo: tupla simple ('evento',) - sin filtros
+                                        for event_tuple in events_list:
+                                            if isinstance(event_tuple, tuple) and len(event_tuple) > 0:
+                                                event_name = event_tuple[0]
+                                                metric_events.append(event_name)
+                                                # Sin filtros adicionales
+                                    
+                                    elif isinstance(first_item, str):
+                                        # Formato antiguo: lista de strings con 'filters' separado
+                                        metric_events = events_list
+                                        metric_filters = metric_config.get('filters', [])
+                                        
+                                        # Aplicar los mismos filtros a todos los eventos (comportamiento antiguo)
+                                        if metric_filters:
+                                            filters_list = metric_filters if isinstance(metric_filters, list) else [metric_filters]
+                                            for event in metric_events:
+                                                metric_filters_map[event] = filters_list.copy()
+                            
+                            # Formato antiguo (compatibilidad): lista simple de eventos
+                            elif isinstance(metric_config, list):
+                                metric_events = metric_config
+                                # Sin filtros para formato antiguo
                             
                             if metric_events:
                                 metrics_to_process.append({
@@ -1155,29 +1261,45 @@ def run_ui():
 
         ```python
         # filtros amplitude
-        from amplitude_filters import (
+        from utils.amplitude_filters import (
             cabin_bag_filter,
-            checked_bag_filter
+            checked_bag_filter,
+            get_DB_filter
         )
 
-        # Next Step Rate [Step] - General
-        NSR_[STEP] = [
-            'evento_inicial',
-            'evento_final'
-        ]
+        # Next Step Rate [Step] - General (sin filtros adicionales)
+        NSR_[STEP] = {'events': [
+            ('evento_inicial', []),
+            ('evento_final', [])
+        ]}
 
-        # Website Conversion Rate from [Step] - General
-        WCR_[STEP] = [
-            'evento_inicial',
-            'revenue_amount'
-        ]
+        # Website Conversion Rate from [Step] - General (sin filtros adicionales)
+        WCR_[STEP] = {'events': [
+            ('evento_inicial', []),
+            ('revenue_amount', [])
+        ]}
 
-        # [Step] A2C con filtros específicos
+        # [Step] A2C con filtros específicos aplicados a ambos eventos
         [STEP]_A2C = {'events': [
-            'evento_inicial',
-            'evento_final',
-        ], 'filters': [filtro_especifico()]}
+            ('evento_inicial', [filtro_especifico()]),
+            ('evento_final', [filtro_especifico()])
+        ]}
+
+        # Métrica con filtros diferentes por evento
+        METRIC_CUSTOM = {'events': [
+            ('evento_inicial', [get_DB_filter()]),  # Primer evento con filtro DB
+            ('evento_final', [])  # Segundo evento sin filtros - lista vacía
+        ]}
         ```
+
+        **📌 Formato de Métricas:**
+        - **Todas las métricas** deben usar el formato `{'events': [...]}`
+        - **SIEMPRE usa tuplas** `('evento', [filtros])`
+        - **El segundo elemento es siempre una lista** de filtros: `[filtro1, filtro2, ...]`
+        - **Si no hay filtros**, usa lista vacía: `[]`
+        - **Puedes agregar tantos eventos como necesites** (2, 3, 4, 5+ eventos)
+        - **Cada evento puede tener sus propios filtros** independientemente de los demás
+        - **Los eventos se procesan en orden** como un funnel secuencial
 
         #### 2. Actualizar streamlit/app.py
         Agrega la importación en la sección de métricas (línea ~378):

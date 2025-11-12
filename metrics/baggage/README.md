@@ -4,75 +4,157 @@ Este módulo contiene los KPIs específicos para análisis de métricas de equip
 
 ## 📊 KPIs Disponibles
 
+### Formato de Métricas
+
+Todas las métricas siguen el formato estándar donde cada evento tiene sus propios filtros:
+
+```python
+METRIC_NAME = {'events': [
+    ('evento_1', [filtro_1, filtro_2, ..., filtro_m]),
+    ('evento_2', [filtro_1, filtro_2, ..., filtro_m]),
+    ('evento_3', [filtro_1, filtro_2, ..., filtro_m]),
+    # ... puedes agregar tantos eventos como necesites
+    ('evento_n', [filtro_1, filtro_2, ..., filtro_m]),
+]}
+```
+
+Cada tupla contiene:
+- **Primer elemento**: Nombre del evento (string)
+- **Segundo elemento**: Lista de filtros para ese evento `[filtro1, filtro2, ...]`
+  - Si no hay filtros, usar lista vacía: `[]`
+
+**Nota importante**: Puedes agregar **tantos eventos como necesites** en una métrica. Los eventos se procesan en orden como un funnel secuencial. Ejemplos comunes:
+- **2 eventos**: Funnel básico (inicio → fin)
+- **3+ eventos**: Funnel completo con etapas intermedias
+
+---
+
 ### 1. NSR Baggage (Next Step Rate)
 **Descripción**: Mide la conversión de usuarios que cargan la página de equipaje (`baggage_dom_loaded`) a la página de selección de asientos (`seatmap_dom_loaded`).
 
+**Definición**:
+```python
+NSR_BAGGAGE = {'events': [
+    ('baggage_dom_loaded', []),
+    ('seatmap_dom_loaded', [])
+]}
+```
+
 **Eventos**:
-- `baggage_dom_loaded`
-- `seatmap_dom_loaded`
+- `baggage_dom_loaded` (sin filtros adicionales - lista vacía)
+- `seatmap_dom_loaded` (sin filtros adicionales - lista vacía)
 
 **Filtros aplicados**:
-- Cultura (según selección)
-- Tipo de dispositivo (según selección)
-- Filtro DB (solo flujo de compra directo)
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
 
 ---
 
-### 2. WCR Baggage (Website Conversion Rate)
+### 2. NSR Baggage DB (Next Step Rate - Direct Booking)
+**Descripción**: Similar a NSR Baggage pero solo para flujo de compra directo (DB).
+
+**Definición**:
+```python
+NSR_BAGGAGE_DB = {'events': [
+    ('baggage_dom_loaded', [get_DB_filter()]),
+    ('seatmap_dom_loaded', [get_DB_filter()])
+]}
+```
+
+**Eventos**:
+- `baggage_dom_loaded` (con filtro DB en lista)
+- `seatmap_dom_loaded` (con filtro DB en lista)
+
+**Filtros aplicados**:
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
+- Filtro DB (aplicado a ambos eventos)
+
+---
+
+### 3. WCR Baggage (Website Conversion Rate)
 **Descripción**: Mide la conversión de usuarios que cargan la página de equipaje (`baggage_dom_loaded`) a conversión final (`revenue_amount`).
 
+**Definición**:
+```python
+WCR_BAGGAGE = {'events': [
+    ('baggage_dom_loaded', []),
+    ('revenue_amount', [])
+]}
+```
+
 **Eventos**:
-- `baggage_dom_loaded`
-- `revenue_amount`
+- `baggage_dom_loaded` (sin filtros adicionales - lista vacía)
+- `revenue_amount` (sin filtros adicionales - lista vacía)
 
 **Filtros aplicados**:
-- Cultura (según selección)
-- Tipo de dispositivo (según selección)
-- Filtro DB (solo flujo de compra directo)
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
 
 ---
 
-### 3. WCR Baggage Vuela Ligero
+### 4. WCR Baggage Vuela Ligero
 **Descripción**: Similar a WCR Baggage pero específicamente para usuarios con Vuela Ligero.
 
+**Definición**:
+```python
+WCR_BAGGAGE_VUELA_LIGERO = {'events': [
+    ('ce:(NEW) baggage_dom_loaded_with_vuela_ligero', []),
+    ('revenue_amount', [])
+]}
+```
+
 **Eventos**:
-- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (Custom Event)
-- `revenue_amount`
+- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (Custom Event, sin filtros adicionales - lista vacía)
+- `revenue_amount` (sin filtros adicionales - lista vacía)
 
 **Filtros aplicados**:
-- Cultura (según selección)
-- Tipo de dispositivo (según selección)
-- Filtro DB (solo flujo de compra directo)
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
 
 ---
 
-### 4. Cabin Bag A2C (Add to Cart)
+### 5. Cabin Bag A2C (Add to Cart)
 **Descripción**: Mide la conversión de usuarios con equipaje de cabina desde baggage a seatmap.
 
+**Definición**:
+```python
+CABIN_BAG_A2C = {'events': [
+    ('ce:(NEW) baggage_dom_loaded_with_vuela_ligero', []),  # Sin filtros
+    ('seatmap_dom_loaded', [cabin_bag_filter()])  # Con filtro de equipaje de cabina
+]}
+```
+
 **Eventos**:
-- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (Custom Event)
-- `seatmap_dom_loaded`
+- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (sin filtros adicionales - lista vacía)
+- `seatmap_dom_loaded` (con filtro de equipaje de cabina en lista)
 
 **Filtros aplicados**:
-- Cultura (según selección)
-- Tipo de dispositivo (según selección)
-- Filtro DB (solo flujo de compra directo)
-- Filtro de equipaje de cabina (`cabin_bag_count > 0`)
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
+- Filtro de equipaje de cabina (`cabin_bag_count > 0`) - aplicado a ambos eventos
 
 ---
 
-### 5. Checked Bag A2C (Add to Cart)
+### 6. Checked Bag A2C (Add to Cart)
 **Descripción**: Mide la conversión de usuarios con equipaje documentado desde baggage a seatmap.
 
+**Definición**:
+```python
+CHECKED_BAG_A2C = {'events': [
+    ('ce:(NEW) baggage_dom_loaded_with_vuela_ligero', [checked_bag_filter()]),
+    ('seatmap_dom_loaded', [checked_bag_filter()])
+]}
+```
+
 **Eventos**:
-- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (Custom Event)
-- `seatmap_dom_loaded`
+- `ce:(NEW) baggage_dom_loaded_with_vuela_ligero` (con filtro de equipaje documentado en lista)
+- `seatmap_dom_loaded` (con filtro de equipaje documentado en lista)
 
 **Filtros aplicados**:
-- Cultura (según selección)
-- Tipo de dispositivo (según selección)
-- Filtro DB (solo flujo de compra directo)
-- Filtro de equipaje documentado (`checked_bag_count > 0`)
+- Cultura (según selección del usuario)
+- Tipo de dispositivo (según selección del usuario)
+- Filtro de equipaje documentado (`checked_bag_count > 0`) - aplicado a ambos eventos
 
 ---
 
