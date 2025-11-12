@@ -4,7 +4,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from utils.amplitude_filters import (
     cabin_bag_filter,
-    checked_bag_filter
+    checked_bag_filter,
+    get_DB_filter
 )
 
 # Next Step Rate Baggage - General
@@ -12,6 +13,12 @@ NSR_BAGGAGE = [
     'baggage_dom_loaded',
     'seatmap_dom_loaded'
 ]
+
+# Next Step Rate Baggage - General
+NSR_BAGGAGE_DB = {'events': [
+    'baggage_dom_loaded',
+    'seatmap_dom_loaded'
+], 'filters': [get_DB_filter()]}
 
 # Website Conversion Rate from Baggage - General
 WCR_BAGGAGE = [

@@ -452,10 +452,14 @@ def run_ui():
                         )
                         conversion_window_quick = conversion_window_options_quick[conversion_window_label_quick]
                     
+                    # Inicializar mapeo de filtros (se usará más adelante)
+                    event_filters_map_quick = {}
+                    
                     # Importar métricas de baggage
                     try:
                         from metrics.baggage.baggage_metrics import (
                             NSR_BAGGAGE,
+                            NSR_BAGGAGE_DB,
                             WCR_BAGGAGE,
                             WCR_BAGGAGE_VUELA_LIGERO,
                             CABIN_BAG_A2C,
@@ -465,6 +469,7 @@ def run_ui():
                         # Usar las mismas métricas predefinidas
                         PREDEFINED_METRICS_QUICK = {
                             "🎒 NSR Baggage (Next Step Rate)": NSR_BAGGAGE,
+                            "🎒 NSR Baggage DB (Next Step Rate)": NSR_BAGGAGE_DB,
                             "💰 WCR Baggage (Website Conversion Rate)": WCR_BAGGAGE,
                             "✈️ WCR Baggage Vuela Ligero": WCR_BAGGAGE_VUELA_LIGERO,
                             "🎒 Cabin Bag A2C": CABIN_BAG_A2C,
@@ -478,19 +483,25 @@ def run_ui():
                                     "Métrica": "🎒 NSR Baggage",
                                     "Evento Inicial": NSR_BAGGAGE[0] if isinstance(NSR_BAGGAGE, list) else NSR_BAGGAGE.get('events', [])[0],
                                     "Evento Final": NSR_BAGGAGE[1] if isinstance(NSR_BAGGAGE, list) else NSR_BAGGAGE.get('events', [])[1] if len(NSR_BAGGAGE.get('events', [])) > 1 else "-",
+                                    "Filtros": "Ninguno"
+                                },
+                                {
+                                    "Métrica": "🎒 NSR Baggage DB",
+                                    "Evento Inicial": NSR_BAGGAGE_DB.get('events', [])[0] if len(NSR_BAGGAGE_DB.get('events', [])) > 0 else "-",
+                                    "Evento Final": NSR_BAGGAGE_DB.get('events', [])[1] if len(NSR_BAGGAGE_DB.get('events', [])) > 1 else "-",
                                     "Filtros": "DB"
                                 },
                                 {
                                     "Métrica": "💰 WCR Baggage",
                                     "Evento Inicial": WCR_BAGGAGE[0] if isinstance(WCR_BAGGAGE, list) else WCR_BAGGAGE.get('events', [])[0],
                                     "Evento Final": WCR_BAGGAGE[1] if isinstance(WCR_BAGGAGE, list) else WCR_BAGGAGE.get('events', [])[1] if len(WCR_BAGGAGE.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB"
+                                    "Filtros": "Ninguno"
                                 },
                                 {
                                     "Métrica": "✈️ WCR Vuela Ligero",
                                     "Evento Inicial": WCR_BAGGAGE_VUELA_LIGERO[0] if isinstance(WCR_BAGGAGE_VUELA_LIGERO, list) else WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[0],
                                     "Evento Final": WCR_BAGGAGE_VUELA_LIGERO[1] if isinstance(WCR_BAGGAGE_VUELA_LIGERO, list) else WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[1] if len(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB"
+                                    "Filtros": "Ninguno"
                                 },
                                 {
                                     "Métrica": "🎒 Cabin Bag A2C",
@@ -536,23 +547,46 @@ def run_ui():
                                 help="Eventos individuales"
                             )
                         
-                        # Expandir métricas a eventos individuales
+                        # Expandir métricas a eventos individuales y crear mapeo de filtros
                         selected_events_quick = []
+                        # event_filters_map_quick ya está inicializado arriba
                         
                         # Agregar eventos de métricas seleccionadas
                         for metric_name in selected_metrics_quick:
                             metric_config = PREDEFINED_METRICS_QUICK[metric_name]
                             if isinstance(metric_config, list):
+                                # Métrica simple sin filtros adicionales
                                 selected_events_quick.extend(metric_config)
                             elif isinstance(metric_config, dict) and 'events' in metric_config:
-                                selected_events_quick.extend(metric_config['events'])
+                                # Métrica con filtros adicionales
+                                metric_events = metric_config['events']
+                                metric_filters = metric_config.get('filters', [])
+                                
+                                # Agregar eventos
+                                selected_events_quick.extend(metric_events)
+                                
+                                # Mapear cada evento de esta métrica a sus filtros
+                                for event in metric_events:
+                                    if event not in event_filters_map_quick:
+                                        event_filters_map_quick[event] = []
+                                    # Agregar los filtros de esta métrica al evento
+                                    if metric_filters:
+                                        if isinstance(metric_filters, list):
+                                            event_filters_map_quick[event].extend(metric_filters)
+                                        else:
+                                            event_filters_map_quick[event].append(metric_filters)
                         
-                        # Agregar eventos individuales seleccionados
+                        # Agregar eventos individuales seleccionados (sin filtros adicionales)
                         selected_events_quick.extend(selected_events_raw_quick)
                         
-                        # Eliminar duplicados
+                        # Eliminar duplicados manteniendo el orden
                         seen_quick = set()
-                        selected_events_quick = [x for x in selected_events_quick if not (x in seen_quick or seen_quick.add(x))]
+                        unique_events_quick = []
+                        for x in selected_events_quick:
+                            if x not in seen_quick:
+                                seen_quick.add(x)
+                                unique_events_quick.append(x)
+                        selected_events_quick = unique_events_quick
                         
                     except ImportError:
                         # Si no están definidas las métricas, usar solo eventos
@@ -593,26 +627,25 @@ def run_ui():
                                 experiment_variants = get_experiment_variants(experiment_id_quick)
                                 
                                 # Ejecutar pipeline dinámico
+                                # Preparar argumentos comunes
+                                pipeline_kwargs = {
+                                    'start_date': start_date_quick,
+                                    'end_date': end_date_quick,
+                                    'experiment_id': experiment_id_quick,
+                                    'device': device_quick,
+                                    'culture': culture_quick,
+                                    'event_list': selected_events_quick,
+                                    'conversion_window': conversion_window_quick
+                                }
+                                
+                                # Agregar event_filters_map solo si existe y no está vacío
+                                if event_filters_map_quick:
+                                    pipeline_kwargs['event_filters_map'] = event_filters_map_quick
+                                
                                 if use_cumulative:
-                                    df_quick = final_pipeline_cumulative(
-                                        start_date=start_date_quick,
-                                        end_date=end_date_quick,
-                                        experiment_id=experiment_id_quick,
-                                        device=device_quick,
-                                        culture=culture_quick,
-                                        event_list=selected_events_quick,
-                                        conversion_window=conversion_window_quick
-                                    )
+                                    df_quick = final_pipeline_cumulative(**pipeline_kwargs)
                                 else:
-                                    df_quick = final_pipeline(
-                                        start_date=start_date_quick,
-                                        end_date=end_date_quick,
-                                        experiment_id=experiment_id_quick,
-                                        device=device_quick,
-                                        culture=culture_quick,
-                                        event_list=selected_events_quick,
-                                        conversion_window=conversion_window_quick
-                                    )
+                                    df_quick = final_pipeline(**pipeline_kwargs)
                                 
                                 # Mostrar resultados
                                 st.success(f"✅ Análisis completado: {len(df_quick)} registros")

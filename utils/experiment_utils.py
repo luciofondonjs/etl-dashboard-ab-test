@@ -52,7 +52,7 @@ def get_credentials():
     
     return api_key, secret_key, management_api_key
 
-def get_funnel_data_experiment(api_key, secret_key, start_date, end_date, experiment_id, device, variant, culture, event_list, conversion_window=1800):
+def get_funnel_data_experiment(api_key, secret_key, start_date, end_date, experiment_id, device, variant, culture, event_list, conversion_window=1800, event_filters_map=None):
 	"""
 	Obtiene datos de funnel desde la API de Amplitude para un experimento específico.
 	
@@ -67,36 +67,49 @@ def get_funnel_data_experiment(api_key, secret_key, start_date, end_date, experi
 		culture: Código de cultura ('CL', 'AR', 'PE', etc., o 'All')
 		event_list: Lista de eventos a analizar
 		conversion_window: Ventana de tiempo de conversión en segundos (default: 1800 = 30 min)
+		event_filters_map: Diccionario opcional que mapea eventos a sus filtros adicionales.
+		                   Formato: {event_name: [filter1, filter2, ...]}
 		
 	Returns:
 		dict: Respuesta JSON de la API de Amplitude con los datos del funnel
 	"""
 	url = 'https://amplitude.com/api/2/funnels'
 
-	# event_filters_grouped = [{"event_type": event, 'filters': [], "group_by": [get_culture_digital_filter(culture)]} for event in event_list]
-
-	# event_filters_grouped = [{"event_type": event, 'filters': [get_culture_digital_filter(culture), get_device_type(device)], "group_by": []} for event in event_list]
-	filters = []
+	# Construir filtros base (culture y device)
+	base_filters = []
 
 	if culture != "All":
 		culture_filter = get_culture_digital_filter(culture)
 		if culture_filter:  # Solo agregar si no está vacío
-			filters.append(culture_filter)
+			base_filters.append(culture_filter)
 
 	if device != "All":
 		device_filter = get_device_type(device)
 		if device_filter:  # Solo agregar si no está vacío
-			filters.append(device_filter)
+			base_filters.append(device_filter)
 
-
-	event_filters_grouped = [
-		{
+	# Construir event_filters_grouped con filtros base + filtros adicionales por evento
+	event_filters_grouped = []
+	for event in event_list:
+		# Empezar con los filtros base
+		event_filters = base_filters.copy()
+		
+		# Agregar filtros adicionales específicos de este evento si existen
+		if event_filters_map and event in event_filters_map:
+			additional_filters = event_filters_map[event]
+			if additional_filters:
+				# Si additional_filters es una lista, extender
+				if isinstance(additional_filters, list):
+					event_filters.extend(additional_filters)
+				else:
+					# Si es un solo filtro, agregarlo
+					event_filters.append(additional_filters)
+		
+		event_filters_grouped.append({
 			"event_type": event,
-			"filters": filters,  # Usar la lista de filtros construida
+			"filters": event_filters,
 			"group_by": []
-		}
-		for event in event_list
-	]
+		})
 
 
     
@@ -380,7 +393,7 @@ def get_control_treatment_raw_data(
     return control, treatment
 
 
-def final_pipeline(start_date, end_date, experiment_id, device, culture, event_list, conversion_window=1800):
+def final_pipeline(start_date, end_date, experiment_id, device, culture, event_list, conversion_window=1800, event_filters_map=None):
     """
     Pipeline completo para análisis de experimentos AB Test.
     
@@ -392,6 +405,8 @@ def final_pipeline(start_date, end_date, experiment_id, device, culture, event_l
         culture: Código de cultura ('CL', 'AR', 'PE', etc., o 'All')
         event_list: Lista de eventos a analizar
         conversion_window: Ventana de conversión en segundos (default: 1800)
+        event_filters_map: Diccionario opcional que mapea eventos a sus filtros adicionales.
+                           Formato: {event_name: [filter1, filter2, ...]}
         
     Returns:
         pd.DataFrame: DataFrame combinado con datos de todas las variantes
@@ -404,7 +419,8 @@ def final_pipeline(start_date, end_date, experiment_id, device, culture, event_l
         device,
         culture,
         event_list,
-        conversion_window
+        conversion_window,
+        event_filters_map
     )
 
     # Procesar cada variante
@@ -681,7 +697,8 @@ def get_all_variants_raw_data(
     device, 
     culture, 
     event_list,
-    conversion_window=1800
+    conversion_window=1800,
+    event_filters_map=None
 ):
     """
     Obtiene los datos raw de todas las variantes de un experimento.
@@ -694,6 +711,8 @@ def get_all_variants_raw_data(
         culture: Código de cultura ('CL', 'AR', 'PE', etc., o 'All')
         event_list: Lista de eventos a analizar
         conversion_window: Ventana de conversión en segundos (default: 1800)
+        event_filters_map: Diccionario opcional que mapea eventos a sus filtros adicionales.
+                           Formato: {event_name: [filter1, filter2, ...]}
         
     Returns:
         list: Lista de diccionarios con datos de cada variante
@@ -719,7 +738,9 @@ def get_all_variants_raw_data(
             device,
             variant,
             culture,
-            event_list
+            event_list,
+            conversion_window,
+            event_filters_map
         )
         
         variant_data = {
@@ -736,7 +757,7 @@ def get_all_variants_raw_data(
     return all_variants_data
 
 
-def final_pipeline_cumulative(start_date, end_date, experiment_id, device, culture, event_list, conversion_window=1800):
+def final_pipeline_cumulative(start_date, end_date, experiment_id, device, culture, event_list, conversion_window=1800, event_filters_map=None):
     """
     Pipeline completo para análisis de experimentos AB Test con datos acumulados.
     
@@ -748,6 +769,8 @@ def final_pipeline_cumulative(start_date, end_date, experiment_id, device, cultu
         culture: Código de cultura ('CL', 'AR', 'PE', etc., o 'All')
         event_list: Lista de eventos a analizar
         conversion_window: Ventana de conversión en segundos (default: 1800)
+        event_filters_map: Diccionario opcional que mapea eventos a sus filtros adicionales.
+                           Formato: {event_name: [filter1, filter2, ...]}
         
     Returns:
         pd.DataFrame: DataFrame combinado con datos acumulados de todas las variantes
@@ -760,49 +783,8 @@ def final_pipeline_cumulative(start_date, end_date, experiment_id, device, cultu
         device,
         culture,
         event_list,
-        conversion_window
-    )
-
-    # Procesar cada variante con datos acumulados
-    all_dataframes = []
-    for variant_data in all_variants_data:
-        df_variant = get_variant_funnel_cum(variant_data)
-        all_dataframes.append(df_variant)
-
-    # Combinar todos los DataFrames
-    if all_dataframes:
-        df_final = pd.concat(all_dataframes, axis=0, ignore_index=True)
-    else:
-        df_final = pd.DataFrame()
-
-    return df_final
-
-
-def final_pipeline_cumulative(start_date, end_date, experiment_id, device, culture, event_list, conversion_window=1800):
-    """
-    Pipeline completo para análisis de experimentos AB Test con datos acumulados.
-    
-    Args:
-        start_date: Fecha de inicio (formato YYYY-MM-DD)
-        end_date: Fecha de fin (formato YYYY-MM-DD)
-        experiment_id: ID del experimento en Amplitude
-        device: Tipo de dispositivo ('mobile', 'desktop', 'tablet', o 'All')
-        culture: Código de cultura ('CL', 'AR', 'PE', etc., o 'All')
-        event_list: Lista de eventos a analizar
-        conversion_window: Ventana de conversión en segundos (default: 1800)
-        
-    Returns:
-        pd.DataFrame: DataFrame combinado con datos acumulados de todas las variantes
-    """
-    # Obtener datos de todas las variantes
-    all_variants_data = get_all_variants_raw_data(
-        start_date,
-        end_date,
-        experiment_id,
-        device,
-        culture,
-        event_list,
-        conversion_window
+        conversion_window,
+        event_filters_map
     )
 
     # Procesar cada variante con datos acumulados
