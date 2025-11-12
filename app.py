@@ -5,6 +5,7 @@ from io import BytesIO
 
 import streamlit as st
 import pandas as pd
+import requests
 
 from utils.experiment_utils import (
     get_experiments_list,
@@ -175,13 +176,77 @@ def ensure_sys_path() -> None:
 
 
 @st.cache_resource(show_spinner=False)
-def load_env() -> None:
+def load_env() -> tuple[bool, str]:
+    """
+    Carga las variables de entorno desde el archivo .env
+    
+    Returns:
+        tuple: (success, message) - Indica si se cargó correctamente y un mensaje informativo
+    """
     try:
         from dotenv import load_dotenv  # type: ignore
-    except Exception:
-        return
-    # Cargar exclusivamente .env desde el raíz del proyecto
-    load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
+    except ImportError:
+        return False, "python-dotenv no está instalado. Instálalo con: pip install python-dotenv"
+    
+    # Intentar cargar desde múltiples ubicaciones posibles
+    env_paths = [
+        PROJECT_ROOT / ".env",  # Raíz del proyecto
+        Path(__file__).resolve().parent / ".env",  # Carpeta streamlit/
+    ]
+    
+    env_loaded = False
+    loaded_path = None
+    
+    for env_path in env_paths:
+        if env_path.exists():
+            result = load_dotenv(dotenv_path=env_path, override=True)
+            if result:
+                env_loaded = True
+                loaded_path = env_path
+                break
+        else:
+            # También intentar sin especificar path (busca automáticamente)
+            result = load_dotenv(dotenv_path=env_path, override=True)
+            if result:
+                env_loaded = True
+                loaded_path = env_path
+                break
+    
+    # Verificar que las variables críticas estén disponibles
+    required_vars = ['AMPLITUDE_API_KEY', 'AMPLITUDE_SECRET_KEY', 'AMPLITUDE_MANAGEMENT_KEY']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        message = (
+            f"⚠️ Variables de entorno faltantes: {', '.join(missing_vars)}\n\n"
+            f"📁 Archivo .env buscado en:\n"
+            f"   - {PROJECT_ROOT / '.env'}\n"
+            f"   - {Path(__file__).resolve().parent / '.env'}\n\n"
+            f"💡 Crea un archivo .env en una de estas ubicaciones con:\n"
+            f"   AMPLITUDE_API_KEY=tu_api_key\n"
+            f"   AMPLITUDE_SECRET_KEY=tu_secret_key\n"
+            f"   AMPLITUDE_MANAGEMENT_KEY=tu_management_key"
+        )
+        return False, message
+    
+    if env_loaded and loaded_path:
+        return True, f"✅ Variables cargadas desde: {loaded_path}"
+    else:
+        # Intentar carga automática (sin path específico)
+        load_dotenv(override=True)
+        # Verificar nuevamente
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if not missing_vars:
+            return True, "✅ Variables cargadas (ubicación automática)"
+        else:
+            return False, (
+                f"⚠️ No se encontró archivo .env en las ubicaciones esperadas.\n\n"
+                f"📁 Crea un archivo .env en: {PROJECT_ROOT / '.env'}\n\n"
+                f"💡 Con el siguiente contenido:\n"
+                f"   AMPLITUDE_API_KEY=tu_api_key\n"
+                f"   AMPLITUDE_SECRET_KEY=tu_secret_key\n"
+                f"   AMPLITUDE_MANAGEMENT_KEY=tu_management_key"
+            )
 
 
 def run_ui():
@@ -197,7 +262,7 @@ def run_ui():
 
     # Cargar funciones de experiment_utils
     ensure_sys_path()
-    load_env()
+    env_success, env_message = load_env()
 
     # Estado de sesión para persistir vistas e inputs entre reruns
     if "show_experiments" not in st.session_state:
@@ -208,7 +273,18 @@ def run_ui():
     # Sidebar con configuración básica
     with st.sidebar:
         st.header("⚙️ Configuración")
-        st.caption("Las credenciales se leen desde ./.env en el raíz del proyecto.")
+        
+        # Mostrar estado de carga de variables de entorno
+        if env_success:
+            st.success("✅ Variables de entorno cargadas")
+            with st.expander("ℹ️ Ver detalles"):
+                st.text(env_message)
+        else:
+            st.error("❌ Error cargando variables de entorno")
+            with st.expander("⚠️ Ver instrucciones", expanded=True):
+                st.markdown(env_message)
+        
+        st.caption("Las credenciales se leen desde .env en el raíz del proyecto.")
 
         use_cumulative = st.toggle(
             "📈 Usar acumulados (cumulativeRaw)",
@@ -600,8 +676,20 @@ def run_ui():
                         use_container_width=True
                     )
 
+            except ValueError as e:
+                st.error(f"❌ Error de configuración o datos inválidos: {e}")
+                st.info("💡 **Sugerencias:**\n"
+                       "- Verifica que la variable de entorno `AMPLITUDE_MANAGEMENT_KEY` esté configurada correctamente\n"
+                       "- Asegúrate de que el archivo `.env` existe y contiene las credenciales necesarias\n"
+                       "- Revisa que la API key tenga los permisos necesarios para acceder a los experimentos")
+            except requests.exceptions.RequestException as e:
+                st.error(f"❌ Error de conexión con la API de Amplitude: {e}")
+                st.info("💡 **Sugerencias:**\n"
+                       "- Verifica tu conexión a internet\n"
+                       "- Comprueba que la URL de la API sea correcta\n"
+                       "- Revisa que no haya problemas de firewall o proxy")
             except Exception as e:
-                st.error(f"❌ Error listando experimentos: {e}")
+                st.error(f"❌ Error inesperado al listar experimentos: {e}")
                 st.exception(e)
 
     with tab_help:

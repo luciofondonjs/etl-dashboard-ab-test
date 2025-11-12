@@ -40,6 +40,15 @@ def get_credentials():
     management_api_key = os.getenv('AMPLITUDE_MANAGEMENT_KEY')
     
     # Debug: Verificar que las credenciales se cargaron
+    # También verificar variaciones comunes del nombre de la variable
+    if not management_api_key:
+        # Intentar con variaciones del nombre
+        management_api_key = (
+            os.getenv('AMPLITUDE_MANAGEMENT_KEY') or
+            os.getenv('AMPLITUDE_MANAGEMENT_API_KEY') or
+            os.getenv('AMPLITUDE_MGMT_KEY') or
+            os.getenv('AMPLITUDE_MGMT_API_KEY')
+        )
     
     return api_key, secret_key, management_api_key
 
@@ -419,9 +428,20 @@ def get_experiments_list():
     
     Returns:
         pd.DataFrame: DataFrame con la información de todos los experimentos
+        
+    Raises:
+        ValueError: Si las credenciales no están disponibles o la respuesta es inválida
+        requests.RequestException: Si hay un error en la petición HTTP
     """
     # Obtener credenciales
     _, _, management_api_key = get_credentials()
+    
+    # Verificar que la management API key esté disponible
+    if not management_api_key:
+        raise ValueError(
+            "AMPLITUDE_MANAGEMENT_KEY no está configurada. "
+            "Por favor, verifica tus variables de entorno."
+        )
     
     headers = {
         'Accept': 'application/json',
@@ -432,14 +452,49 @@ def get_experiments_list():
         'limit': '1000',
     }
 
-    response = requests.get(
-        'https://experiment.amplitude.com/api/1/experiments', 
-        params=params, 
-        headers=headers
-    )
+    try:
+        response = requests.get(
+            'https://experiment.amplitude.com/api/1/experiments', 
+            params=params, 
+            headers=headers,
+            timeout=30
+        )
         
-    data = json.loads(response.text)
-    return pd.DataFrame(data['experiments'])
+        # Verificar el status code
+        response.raise_for_status()
+        
+        # Verificar que la respuesta no esté vacía
+        if not response.text or not response.text.strip():
+            raise ValueError(
+                f"La respuesta de la API está vacía. "
+                f"Status code: {response.status_code}"
+            )
+        
+        # Intentar parsear el JSON
+        try:
+            data = json.loads(response.text)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Error al parsear la respuesta JSON: {str(e)}\n"
+                f"Status code: {response.status_code}\n"
+                f"Response text (primeros 500 caracteres): {response.text[:500]}"
+            )
+        
+        # Verificar que la respuesta tenga la estructura esperada
+        if 'experiments' not in data:
+            raise ValueError(
+                f"La respuesta no contiene la clave 'experiments'. "
+                f"Claves disponibles: {list(data.keys())}\n"
+                f"Response text (primeros 500 caracteres): {response.text[:500]}"
+            )
+        
+        return pd.DataFrame(data['experiments'])
+        
+    except requests.exceptions.RequestException as e:
+        raise requests.exceptions.RequestException(
+            f"Error al realizar la petición a la API de Amplitude: {str(e)}\n"
+            f"URL: https://experiment.amplitude.com/api/1/experiments"
+        )
 
 
 def get_experiment_variants(experiment_id):
@@ -455,6 +510,12 @@ def get_experiment_variants(experiment_id):
     # Obtener credenciales
     _, _, management_api_key = get_credentials()
     
+    if not management_api_key:
+        raise ValueError(
+            "AMPLITUDE_MANAGEMENT_KEY no está configurada. "
+            "Por favor, verifica tus variables de entorno."
+        )
+    
     headers = {
         'Accept': 'application/json',
         'Authorization': f'Bearer {management_api_key}',
@@ -464,36 +525,65 @@ def get_experiment_variants(experiment_id):
         'limit': '1000',
     }
 
-    response = requests.get(
-        'https://experiment.amplitude.com/api/1/experiments', 
-        params=params, 
-        headers=headers
-    )
+    try:
+        response = requests.get(
+            'https://experiment.amplitude.com/api/1/experiments', 
+            params=params, 
+            headers=headers,
+            timeout=30
+        )
         
-    data = json.loads(response.text)
-    experiments = data['experiments']
-    
-    # Buscar el experimento específico
-    for exp in experiments:
-        if exp.get('key') == experiment_id:
-            variants = exp.get('variants', [])
-            variant_names = []
-            
-            
-            for variant in variants:
-                if isinstance(variant, dict):
-                    name = variant.get('name', variant.get('key', str(variant)))
-                else:
-                    name = str(variant)
+        response.raise_for_status()
+        
+        if not response.text or not response.text.strip():
+            raise ValueError(
+                f"La respuesta de la API está vacía. "
+                f"Status code: {response.status_code}"
+            )
+        
+        try:
+            data = json.loads(response.text)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Error al parsear la respuesta JSON: {str(e)}\n"
+                f"Status code: {response.status_code}\n"
+                f"Response text (primeros 500 caracteres): {response.text[:500]}"
+            )
+        
+        if 'experiments' not in data:
+            raise ValueError(
+                f"La respuesta no contiene la clave 'experiments'. "
+                f"Claves disponibles: {list(data.keys())}"
+            )
+        
+        experiments = data['experiments']
+        
+        # Buscar el experimento específico
+        for exp in experiments:
+            if exp.get('key') == experiment_id:
+                variants = exp.get('variants', [])
+                variant_names = []
                 
-                # SIMPLE: Reemplazar espacios por guiones
-                processed_name = name.replace(' ', '-')
-                variant_names.append(processed_name)
-            
-            return variant_names
-    
-    # Si no se encuentra el experimento, retornar variantes por defecto
-    return ['control', 'treatment']
+                
+                for variant in variants:
+                    if isinstance(variant, dict):
+                        name = variant.get('name', variant.get('key', str(variant)))
+                    else:
+                        name = str(variant)
+                    
+                    # SIMPLE: Reemplazar espacios por guiones
+                    processed_name = name.replace(' ', '-')
+                    variant_names.append(processed_name)
+                
+                return variant_names
+        
+        # Si no se encuentra el experimento, retornar variantes por defecto
+        return ['control', 'treatment']
+        
+    except requests.exceptions.RequestException as e:
+        raise requests.exceptions.RequestException(
+            f"Error al realizar la petición a la API de Amplitude: {str(e)}"
+        )
 
 
 def get_experiment_variants_original(experiment_id):
@@ -509,6 +599,12 @@ def get_experiment_variants_original(experiment_id):
     # Obtener credenciales
     _, _, management_api_key = get_credentials()
     
+    if not management_api_key:
+        raise ValueError(
+            "AMPLITUDE_MANAGEMENT_KEY no está configurada. "
+            "Por favor, verifica tus variables de entorno."
+        )
+    
     headers = {
         'Accept': 'application/json',
         'Authorization': f'Bearer {management_api_key}',
@@ -518,35 +614,64 @@ def get_experiment_variants_original(experiment_id):
         'limit': '1000',
     }
 
-    response = requests.get(
-        'https://experiment.amplitude.com/api/1/experiments', 
-        params=params, 
-        headers=headers
-    )
+    try:
+        response = requests.get(
+            'https://experiment.amplitude.com/api/1/experiments', 
+            params=params, 
+            headers=headers,
+            timeout=30
+        )
         
-    data = json.loads(response.text)
-    experiments = data['experiments']
-    
-    # Buscar el experimento específico
-    for exp in experiments:
-        if exp.get('key') == experiment_id:
-            variants = exp.get('variants', [])
-            variant_names = []
-            
-            
-            for variant in variants:
-                if isinstance(variant, dict):
-                    # Extraer el nombre original de la variante (sin procesar)
-                    name = variant.get('name', variant.get('key', str(variant)))
-                    variant_names.append(name)
-                else:
-                    # Usar el nombre original (sin procesar)
-                    variant_names.append(str(variant))
-            
-            return variant_names
-    
-    # Si no se encuentra el experimento, retornar variantes por defecto
-    return ['control', 'treatment']
+        response.raise_for_status()
+        
+        if not response.text or not response.text.strip():
+            raise ValueError(
+                f"La respuesta de la API está vacía. "
+                f"Status code: {response.status_code}"
+            )
+        
+        try:
+            data = json.loads(response.text)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Error al parsear la respuesta JSON: {str(e)}\n"
+                f"Status code: {response.status_code}\n"
+                f"Response text (primeros 500 caracteres): {response.text[:500]}"
+            )
+        
+        if 'experiments' not in data:
+            raise ValueError(
+                f"La respuesta no contiene la clave 'experiments'. "
+                f"Claves disponibles: {list(data.keys())}"
+            )
+        
+        experiments = data['experiments']
+        
+        # Buscar el experimento específico
+        for exp in experiments:
+            if exp.get('key') == experiment_id:
+                variants = exp.get('variants', [])
+                variant_names = []
+                
+                
+                for variant in variants:
+                    if isinstance(variant, dict):
+                        # Extraer el nombre original de la variante (sin procesar)
+                        name = variant.get('name', variant.get('key', str(variant)))
+                        variant_names.append(name)
+                    else:
+                        # Usar el nombre original (sin procesar)
+                        variant_names.append(str(variant))
+                
+                return variant_names
+        
+        # Si no se encuentra el experimento, retornar variantes por defecto
+        return ['control', 'treatment']
+        
+    except requests.exceptions.RequestException as e:
+        raise requests.exceptions.RequestException(
+            f"Error al realizar la petición a la API de Amplitude: {str(e)}"
+        )
 
 
 def get_all_variants_raw_data(

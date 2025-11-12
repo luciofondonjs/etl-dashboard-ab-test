@@ -6,9 +6,9 @@ Aplicación de Streamlit para analizar experimentos de Amplitude (Jetsmart). Per
 
 ### Requisitos
 - Python 3.10+
-- Archivo `.env` en la raíz del repo (`./.env`) con credenciales de Amplitude.
+- Archivo `.env` en la raíz del proyecto con credenciales de Amplitude.
 
-Variables requeridas en `./.env`:
+Variables requeridas en `.env`:
 ```
 AMPLITUDE_API_KEY=...
 AMPLITUDE_SECRET_KEY=...
@@ -17,30 +17,31 @@ AMPLITUDE_MANAGEMENT_KEY=...
 
 ### Entorno virtual e instalación (Windows PowerShell)
 
-Crea y usa tu propio entorno virtual en la raíz del repo y instala dependencias con `pip`:
+Crea y activa el entorno virtual en la raíz del proyecto:
+
 ```powershell
-python -m venv .venv
-./.venv/Scripts/Activate.ps1
+# Crear entorno virtual (si no existe)
+python -m venv venv
+
+# Activar el entorno virtual
+./venv/Scripts/Activate.ps1
+
+# Actualizar pip e instalar dependencias
 python -m pip install --upgrade pip
-pip install -r streamlit/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Ejecutar la app
 
-Con el entorno virtual activo, desde el raíz del repo o desde `streamlit/`:
+Con el entorno virtual activo, desde la raíz del proyecto:
 
 ```powershell
-# Opción A (desde el raíz)
-streamlit run streamlit/app.py
-
-# Opción B (desde la carpeta streamlit)
-cd streamlit
 streamlit run app.py
 ```
 
 ### Estructura relevante
 ```
-streamlit/
+.
   app.py                    # App principal de Streamlit
   requirements.txt          # Dependencias
   utils/experiment_utils.py # Librería con lógica de Amplitude y pipelines
@@ -54,12 +55,12 @@ streamlit/
 - Importa y añade las métricas al diccionario en `app.py` (sección de métricas predefinidas).
 - Documenta la métrica en la tabla de "📚 Ver Métricas Disponibles".
 
-Consulta la guía completa en `streamlit/METRICS_GUIDE.md` y el ejemplo `streamlit/EXAMPLE_SEATS_METRICS.py`.
+Consulta la guía completa en `METRICS_GUIDE.md` y el ejemplo `EXAMPLE_SEATS_METRICS.py`.
 
 ### Troubleshooting
-- Verifica que el `.env` esté en `./.env` (raíz del repo).
-- Asegúrate de activar el entorno virtual correcto antes de ejecutar.
-- Si faltan paquetes, ejecuta `pip install -r streamlit/requirements.txt` (o `streamlit/requirements.txt` si estás en el raíz).
+- Verifica que el `.env` esté en la raíz del proyecto.
+- Asegúrate de activar el entorno virtual antes de ejecutar.
+- Si faltan paquetes, ejecuta `pip install -r requirements.txt` desde la raíz del proyecto.
 - Revisa la pestaña "❓ Ayuda" dentro de la app para parámetros y ejemplos.
 
 ### Licencia y soporte
