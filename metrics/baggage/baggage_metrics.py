@@ -14,7 +14,7 @@ NSR_BAGGAGE = [
     'seatmap_dom_loaded'
 ]
 
-# Next Step Rate Baggage - General
+# Next Step Rate Baggage - DB
 NSR_BAGGAGE_DB = {'events': [
     'baggage_dom_loaded',
     'seatmap_dom_loaded'

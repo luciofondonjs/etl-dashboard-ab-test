@@ -302,7 +302,7 @@ def run_ui():
         """)
 
     # Tabs principales
-    tab_experiments, tab_help = st.tabs(["📋 Experimentos", "❓ Ayuda"])
+    tab_experiments, tab_statistical, tab_help = st.tabs(["📋 Experimentos", "📊 Análisis Estadístico", "❓ Ayuda"])
 
     with tab_experiments:
         st.subheader("🔍 Experimentos y Análisis")
@@ -672,6 +672,11 @@ def run_ui():
                                             total_events = df_quick['Event Count'].sum()
                                             st.metric("Total Eventos", f"{total_events:,.0f}")
                                 
+                                # Guardar DataFrame en session_state para análisis estadístico
+                                st.session_state['analysis_df'] = df_quick
+                                st.session_state['analysis_experiment_id'] = experiment_id_quick
+                                st.session_state['analysis_experiment_name'] = selected_row.get('name', experiment_id_quick)
+                                
                                 # Mostrar tabla
                                 st.dataframe(df_quick, use_container_width=True)
                                 
@@ -724,6 +729,278 @@ def run_ui():
             except Exception as e:
                 st.error(f"❌ Error inesperado al listar experimentos: {e}")
                 st.exception(e)
+
+    with tab_statistical:
+        st.subheader("📊 Análisis Estadístico A/B/N")
+        st.caption("Análisis estadístico completo con p-values, lift, P2BB y significancia")
+        
+        # Verificar si hay datos disponibles
+        if 'analysis_df' not in st.session_state or st.session_state['analysis_df'] is None or st.session_state['analysis_df'].empty:
+            st.info("""
+            ℹ️ **No hay datos disponibles para análisis estadístico**
+            
+            Para usar esta funcionalidad:
+            1. Ve a la pestaña **📋 Experimentos**
+            2. Selecciona un experimento y ejecuta un análisis
+            3. Los resultados estarán disponibles aquí para análisis estadístico
+            """)
+        else:
+            df_analysis = st.session_state['analysis_df']
+            experiment_id_stat = st.session_state.get('analysis_experiment_id', 'N/A')
+            experiment_name_stat = st.session_state.get('analysis_experiment_name', 'N/A')
+            
+            # Mostrar información del experimento
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, #1B365D 0%, #4A6489 100%); 
+                        border: 2px solid #3CCFE7; 
+                        border-radius: 12px; 
+                        padding: 20px; 
+                        margin: 20px 0; 
+                        text-align: center;">
+                <h3 style="color: white; margin: 0; font-size: 1.3em;">
+                    🧪 {experiment_name_stat} ({experiment_id_stat})
+                </h3>
+                <p style="color: #E0E0E0; margin: 10px 0 0 0;">
+                    Total de registros: {len(df_analysis):,}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Verificar si tiene Funnel Stage
+            if 'Funnel Stage' in df_analysis.columns:
+                # Obtener etapas únicas del funnel
+                funnel_stages = sorted(df_analysis['Funnel Stage'].unique().tolist())
+                
+                if len(funnel_stages) >= 2:
+                    # Configuración de análisis
+                    st.markdown("### ⚙️ Configuración del Análisis")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        initial_stage = st.selectbox(
+                            "🎯 Etapa Inicial (n - sesiones)",
+                            options=funnel_stages,
+                            index=0,
+                            help="Etapa del funnel que representa el número total de sesiones/usuarios"
+                        )
+                    with col2:
+                        final_stage = st.selectbox(
+                            "🎯 Etapa Final (x - conversiones)",
+                            options=funnel_stages,
+                            index=min(1, len(funnel_stages) - 1),
+                            help="Etapa del funnel que representa las conversiones"
+                        )
+                    
+                    if initial_stage == final_stage:
+                        st.warning("⚠️ La etapa inicial y final deben ser diferentes para un análisis válido")
+                    else:
+                        # Preparar variantes
+                        from utils.statistical_analysis import (
+                            prepare_variants_from_dataframe,
+                            calculate_ab_test,
+                            calculate_chi_square_test,
+                            calculate_all_pairwise_comparisons,
+                            create_metric_card,
+                            create_comparison_matrix,
+                            create_comparison_cards,
+                            create_visualization
+                        )
+                        
+                        variants = prepare_variants_from_dataframe(
+                            df_analysis,
+                            initial_stage=initial_stage,
+                            final_stage=final_stage
+                        )
+                        
+                        if len(variants) >= 2:
+                            # Mostrar resumen de variantes
+                            st.markdown("### 📋 Resumen de Variantes")
+                            summary_data = []
+                            for variant in variants:
+                                conversion_rate = (variant['x'] / variant['n']) * 100 if variant['n'] > 0 else 0
+                                summary_data.append({
+                                    'Variante': variant['name'],
+                                    'Sesiones (n)': f"{variant['n']:,}",
+                                    'Conversiones (x)': f"{variant['x']:,}",
+                                    'Tasa Conversión': f"{conversion_rate:.2f}%"
+                                })
+                            
+                            summary_df = pd.DataFrame(summary_data)
+                            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                            
+                            # Análisis según número de variantes
+                            if len(variants) == 2:
+                                # Análisis A/B simple
+                                st.markdown("### 📊 Análisis A/B")
+                                
+                                control = variants[0]
+                                treatment = variants[1]
+                                
+                                results = calculate_ab_test(
+                                    control['n'], control['x'],
+                                    treatment['n'], treatment['x']
+                                )
+                                
+                                # Crear estructura de datos para la tarjeta
+                                comparison_data = {
+                                    'baseline': control,
+                                    'treatment': treatment
+                                }
+                                
+                                # Mostrar tarjeta de métrica
+                                metric_name = f"{initial_stage} → {final_stage}"
+                                create_metric_card(metric_name, comparison_data, results, experiment_name_stat)
+                                
+                            else:
+                                # Análisis multivariante
+                                st.markdown("### 📊 Análisis Multivariante")
+                                
+                                # Test Chi-cuadrado global
+                                chi_square_result = calculate_chi_square_test(variants)
+                                with st.expander("📊 Test Chi-cuadrado Global", expanded=True):
+                                    st.markdown(f"""
+                                    **Test Chi-cuadrado:** {'✓ Significativo' if chi_square_result['significant'] else '✗ No significativo'} 
+                                    (p-value: {chi_square_result['p_value']:.4f}, χ²: {chi_square_result['chi2']:.2f})
+                                    
+                                    Este test evalúa si existe una diferencia significativa entre **todas** las variantes de forma global.
+                                    """)
+                                
+                                # Comparaciones vs Control
+                                control = variants[0]
+                                st.markdown("### 📈 Comparaciones vs Control")
+                                
+                                for i, treatment in enumerate(variants[1:], 1):
+                                    comparison_data = {
+                                        'baseline': control,
+                                        'treatment': treatment
+                                    }
+                                    
+                                    results = calculate_ab_test(
+                                        control['n'], control['x'],
+                                        treatment['n'], treatment['x']
+                                    )
+                                    
+                                    comparison_name = f"{initial_stage} → {final_stage} - {control['name']} vs {treatment['name']}"
+                                    create_metric_card(comparison_name, comparison_data, results, experiment_name_stat)
+                                
+                                # Comparaciones entre variantes (si hay más de 2)
+                                if len(variants) > 2:
+                                    st.markdown("### 🔄 Comparaciones entre Variantes")
+                                    
+                                    treatment_variants = variants[1:]
+                                    
+                                    for i in range(len(treatment_variants)):
+                                        for j in range(i + 1, len(treatment_variants)):
+                                            variant_a = treatment_variants[i]
+                                            variant_b = treatment_variants[j]
+                                            
+                                            comparison_data = {
+                                                'baseline': variant_a,
+                                                'treatment': variant_b
+                                            }
+                                            
+                                            results = calculate_ab_test(
+                                                variant_a['n'], variant_a['x'],
+                                                variant_b['n'], variant_b['x']
+                                            )
+                                            
+                                            comparison_name = f"{initial_stage} → {final_stage} - {variant_a['name']} vs {variant_b['name']}"
+                                            create_metric_card(comparison_name, comparison_data, results, experiment_name_stat)
+                                
+                                # Análisis detallado (colapsado)
+                                with st.expander("📋 Análisis Detallado", expanded=False):
+                                    # Dos columnas para matriz y gráfico
+                                    col_matrix, col_chart = st.columns([1, 1])
+                                    
+                                    with col_matrix:
+                                        metric_name = f"{initial_stage} → {final_stage}"
+                                        create_comparison_matrix(metric_name, variants)
+                                    
+                                    with col_chart:
+                                        fig = create_visualization(metric_name, variants)
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    # Todas las comparaciones pareadas
+                                    st.markdown("### 🔍 Todas las Comparaciones Pareadas")
+                                    all_comparisons = calculate_all_pairwise_comparisons(variants)
+                                    
+                                    # Separar comparaciones vs control de comparaciones entre variantes
+                                    control_comparisons = [comp for comp in all_comparisons if comp['is_control_comparison']]
+                                    variant_comparisons = [comp for comp in all_comparisons if not comp['is_control_comparison']]
+                                    
+                                    if control_comparisons:
+                                        st.markdown("#### 📊 Comparaciones vs Control")
+                                        create_comparison_cards(control_comparisons, is_control_section=True)
+                                    
+                                    if variant_comparisons:
+                                        st.markdown("#### 🔄 Comparaciones entre Variantes")
+                                        create_comparison_cards(variant_comparisons, is_control_section=False)
+                        else:
+                            st.warning(f"⚠️ Se necesitan al menos 2 variantes para el análisis estadístico. Se encontraron {len(variants)} variantes.")
+                else:
+                    st.warning("⚠️ Se necesitan al menos 2 etapas del funnel para realizar el análisis estadístico")
+            else:
+                # Si no hay Funnel Stage, hacer análisis simple por variante
+                st.info("ℹ️ No se detectó columna 'Funnel Stage'. Realizando análisis simple por variante.")
+                
+                from utils.statistical_analysis import (
+                    prepare_variants_from_dataframe,
+                    calculate_ab_test,
+                    calculate_chi_square_test,
+                    calculate_all_pairwise_comparisons,
+                    create_metric_card,
+                    create_comparison_matrix,
+                    create_comparison_cards,
+                    create_visualization
+                )
+                
+                variants = prepare_variants_from_dataframe(df_analysis)
+                
+                if len(variants) >= 2:
+                    # Mostrar resumen
+                    st.markdown("### 📋 Resumen de Variantes")
+                    summary_data = []
+                    for variant in variants:
+                        conversion_rate = (variant['x'] / variant['n']) * 100 if variant['n'] > 0 else 0
+                        summary_data.append({
+                            'Variante': variant['name'],
+                            'Registros (n)': f"{variant['n']:,}",
+                            'Eventos (x)': f"{variant['x']:,}",
+                            'Tasa': f"{conversion_rate:.2f}%"
+                        })
+                    
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                    
+                    # Análisis
+                    if len(variants) == 2:
+                        control = variants[0]
+                        treatment = variants[1]
+                        
+                        results = calculate_ab_test(
+                            control['n'], control['x'],
+                            treatment['n'], treatment['x']
+                        )
+                        
+                        comparison_data = {
+                            'baseline': control,
+                            'treatment': treatment
+                        }
+                        
+                        create_metric_card("Análisis por Variante", comparison_data, results, experiment_name_stat)
+                    else:
+                        # Multivariante
+                        chi_square_result = calculate_chi_square_test(variants)
+                        st.markdown(f"**Test Chi-cuadrado:** {'✓ Significativo' if chi_square_result['significant'] else '✗ No significativo'} (p-value: {chi_square_result['p_value']:.4f})")
+                        
+                        # Comparaciones vs control
+                        control = variants[0]
+                        for treatment in variants[1:]:
+                            results = calculate_ab_test(control['n'], control['x'], treatment['n'], treatment['x'])
+                            comparison_data = {'baseline': control, 'treatment': treatment}
+                            create_metric_card(f"{control['name']} vs {treatment['name']}", comparison_data, results, experiment_name_stat)
+                else:
+                    st.warning("⚠️ Se necesitan al menos 2 variantes para el análisis estadístico")
 
     with tab_help:
         st.subheader("❓ Guía de Uso")
