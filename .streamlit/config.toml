@@ -1,0 +1,9 @@
+[server]
+# Configuración del servidor para evitar problemas con el file watcher en Windows
+fileWatcherType = "poll"
+
+[watcher]
+# Deshabilitar el watcher de archivos si causa problemas
+# Esto puede afectar el hot-reload, pero evita errores en Windows
+# poll = true
+

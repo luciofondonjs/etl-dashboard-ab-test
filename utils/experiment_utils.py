@@ -208,10 +208,16 @@ def get_variant_funnel(variant):
 
         for date, data in zip(dates, funnel_website_conversion_data):
             for funnel_stage, value in zip(funnel_stages, data):
+                # Si el paso viene como dict de Amplitude, tomar el nombre
+                if isinstance(funnel_stage, dict):
+                    stage_name = funnel_stage.get('event_type', str(funnel_stage))
+                else:
+                    stage_name = funnel_stage
+                
                 new_row = {
                     'Date': pd.to_datetime(date),
                     'ExperimentID': variant['ExperimentID'],
-                    'Funnel Stage': funnel_stage,
+                    'Funnel Stage': stage_name,
                     'Culture': variant['Culture'],
                     'Device': variant['Device'],
                     'Variant': variant['Variant'],
@@ -227,7 +233,7 @@ def get_variant_funnel_cum(variant):
     """
     Procesa los datos de una variante y genera un DataFrame con datos acumulados.
     
-    Args:
+    Args:   
         variant: Diccionario con datos de la variante que incluye:
             - Data: Datos de la API de Amplitude
             - ExperimentID: ID del experimento

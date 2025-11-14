@@ -9,6 +9,7 @@ from scipy.stats import chi2_contingency
 import plotly.graph_objects as go
 from itertools import combinations
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 def calculate_ab_test(control_n, control_x, treatment_n, treatment_x):
@@ -27,8 +28,12 @@ def calculate_ab_test(control_n, control_x, treatment_n, treatment_x):
     control_p = control_x / control_n if control_n > 0 else 0
     treatment_p = treatment_x / treatment_n if treatment_n > 0 else 0
     
-    # Calcular error estándar
+    # Calcular error estándar para diferencia de proporciones
+    # Usar pooled proportion para el error estándar (más robusto)
+    pooled_p = (control_x + treatment_x) / (control_n + treatment_n) if (control_n + treatment_n) > 0 else 0
     se = np.sqrt(
+        pooled_p * (1 - pooled_p) * (1/control_n + 1/treatment_n)
+    ) if control_n > 0 and treatment_n > 0 and pooled_p > 0 and pooled_p < 1 else np.sqrt(
         (control_p * (1 - control_p) / control_n) +
         (treatment_p * (1 - treatment_p) / treatment_n)
     ) if control_n > 0 and treatment_n > 0 else 0
@@ -36,16 +41,23 @@ def calculate_ab_test(control_n, control_x, treatment_n, treatment_x):
     # Calcular z-score
     z_score = (treatment_p - control_p) / se if se > 0 else 0
     
-    # Calcular p-value (two-tailed)
-    p_value = 2 * (1 - stats.norm.cdf(abs(z_score))) if se > 0 else 1
+    # Calcular p-value (two-tailed test)
+    # Usar sf (survival function) que es más numéricamente estable que 1 - cdf
+    p_value = 2 * stats.norm.sf(abs(z_score)) if se > 0 and not np.isnan(z_score) and not np.isinf(z_score) else 1.0
     
     # Calcular lift relativo
     relative_lift = ((treatment_p - control_p) / control_p) * 100 if control_p > 0 else 0
     
     # Calcular probabilidad bayesiana (P2BB)
+    # Validar parámetros para evitar errores en la distribución beta
     n_simulations = 10000
-    baseline_posterior = np.random.beta(control_x + 1, control_n - control_x + 1, n_simulations)
-    treatment_posterior = np.random.beta(treatment_x + 1, treatment_n - treatment_x + 1, n_simulations)
+    control_alpha = max(1, control_x + 1)
+    control_beta = max(1, control_n - control_x + 1)
+    treatment_alpha = max(1, treatment_x + 1)
+    treatment_beta = max(1, treatment_n - treatment_x + 1)
+    
+    baseline_posterior = np.random.beta(control_alpha, control_beta, n_simulations)
+    treatment_posterior = np.random.beta(treatment_alpha, treatment_beta, n_simulations)
     p2bb = np.mean(treatment_posterior > baseline_posterior)
     
     return {
@@ -74,8 +86,12 @@ def calculate_single_comparison(variant_a, variant_b, is_control_comparison=Fals
     a_p = variant_a['x'] / variant_a['n'] if variant_a['n'] > 0 else 0
     b_p = variant_b['x'] / variant_b['n'] if variant_b['n'] > 0 else 0
     
-    # Calcular error estándar
+    # Calcular error estándar para diferencia de proporciones
+    # Usar pooled proportion para el error estándar (más robusto)
+    pooled_p = (variant_a['x'] + variant_b['x']) / (variant_a['n'] + variant_b['n']) if (variant_a['n'] + variant_b['n']) > 0 else 0
     se = np.sqrt(
+        pooled_p * (1 - pooled_p) * (1/variant_a['n'] + 1/variant_b['n'])
+    ) if variant_a['n'] > 0 and variant_b['n'] > 0 and pooled_p > 0 and pooled_p < 1 else np.sqrt(
         (a_p * (1 - a_p) / variant_a['n']) +
         (b_p * (1 - b_p) / variant_b['n'])
     ) if variant_a['n'] > 0 and variant_b['n'] > 0 else 0
@@ -83,11 +99,12 @@ def calculate_single_comparison(variant_a, variant_b, is_control_comparison=Fals
     # Calcular z-score
     if se > 0:
         z_score = (b_p - a_p) / se
-        # Calcular p-value (two-tailed)
-        p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))
+        # Calcular p-value (two-tailed test)
+        # Usar sf (survival function) que es más numéricamente estable que 1 - cdf
+        p_value = 2 * stats.norm.sf(abs(z_score)) if not np.isnan(z_score) and not np.isinf(z_score) else 1.0
     else:
         z_score = 0
-        p_value = 1
+        p_value = 1.0
     
     # Calcular lift relativo
     if a_p > 0:
@@ -96,9 +113,15 @@ def calculate_single_comparison(variant_a, variant_b, is_control_comparison=Fals
         relative_lift = 0
     
     # Calcular probabilidad bayesiana
+    # Validar parámetros para evitar errores en la distribución beta
     n_simulations = 10000
-    a_posterior = np.random.beta(variant_a['x'] + 1, variant_a['n'] - variant_a['x'] + 1, n_simulations)
-    b_posterior = np.random.beta(variant_b['x'] + 1, variant_b['n'] - variant_b['x'] + 1, n_simulations)
+    a_alpha = max(1, variant_a['x'] + 1)
+    a_beta = max(1, variant_a['n'] - variant_a['x'] + 1)
+    b_alpha = max(1, variant_b['x'] + 1)
+    b_beta = max(1, variant_b['n'] - variant_b['x'] + 1)
+    
+    a_posterior = np.random.beta(a_alpha, a_beta, n_simulations)
+    b_posterior = np.random.beta(b_alpha, b_beta, n_simulations)
     p2bb = np.mean(b_posterior > a_posterior)
     
     return {
@@ -125,11 +148,39 @@ def calculate_chi_square_test(variants):
         dict: Resultados del test Chi-cuadrado
     """
     # Crear tabla de contingencia
-    conversions = [variant['x'] for variant in variants]
-    non_conversions = [variant['n'] - variant['x'] for variant in variants]
+    # Validar que no haya valores negativos o inválidos
+    conversions = []
+    non_conversions = []
+    
+    for variant in variants:
+        x = max(0, variant.get('x', 0))
+        n = max(0, variant.get('n', 0))
+        # Asegurar que x <= n
+        x = min(x, n)
+        conversions.append(x)
+        non_conversions.append(max(0, n - x))
+    
+    # Validar que haya al menos un valor positivo en cada fila
+    if sum(conversions) == 0 or sum(non_conversions) == 0:
+        # Si no hay conversiones o todas son conversiones, retornar valores por defecto
+        return {
+            'chi2': 0,
+            'p_value': 1.0,
+            'dof': 0,
+            'significant': False
+        }
     
     # Tabla de contingencia: [conversiones, no_conversiones] para cada variante
     contingency_table = np.array([conversions, non_conversions])
+    
+    # Validar que todos los valores sean no negativos
+    if np.any(contingency_table < 0):
+        return {
+            'chi2': 0,
+            'p_value': 1.0,
+            'dof': 0,
+            'significant': False
+        }
     
     # Test Chi-cuadrado
     chi2, p_value, dof, expected = chi2_contingency(contingency_table)
@@ -242,11 +293,15 @@ def prepare_variants_from_dataframe(df, initial_stage=None, final_stage=None):
         for variant in all_variants:
             variant_df = df[df['Variant'] == variant].copy()
             
-            # n: total de eventos en la etapa inicial
+            # IMPORTANTE: Para TODAS las métricas de conversión (WCR, NSR, etc.):
+            # - n (denominador) = eventos en la etapa inicial (primer evento)
+            # - x (numerador) = eventos en la etapa final (último evento)
+            # Conversión = x/n = eventos_finales / eventos_iniciales
+            # Ejemplo WCR: revenue_amount / baggage_dom_loaded
+            # Ejemplo NSR: seatmap_dom_loaded / baggage_dom_loaded
             initial_df = variant_df[variant_df['Funnel Stage'] == initial_stage]
             n = int(initial_df['Event Count'].sum()) if not initial_df.empty else 0
             
-            # x: total de eventos en la etapa final
             final_df = variant_df[variant_df['Funnel Stage'] == final_stage]
             x = int(final_df['Event Count'].sum()) if not final_df.empty else 0
             
@@ -317,7 +372,8 @@ def prepare_variants_by_funnel_stage(df):
 
 def create_metric_card(metric_name, data, results, experiment_title=None):
     """
-    Crea una tarjeta estilizada para una métrica.
+    Crea una tarjeta estilizada para una métrica A/B (2 variantes).
+    Diseño idéntico al multivariante con tabla HTML y header turquesa.
     
     Args:
         metric_name: Nombre de la métrica
@@ -325,281 +381,234 @@ def create_metric_card(metric_name, data, results, experiment_title=None):
         results: Diccionario con resultados estadísticos
         experiment_title: Título opcional del experimento
     """
-    st.markdown("""
-        <style>
-        .metric-card {
-            width: 600px;
-            height: 350px;
-            background: #4A6489;
-            box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
-            border-radius: 12px;
-            margin: 20px auto;
-            color: white;
-            position: relative;
-            overflow: hidden;
-        }
-        .metric-header {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            justify-content: flex-start;
-            padding: 16px;
-            gap: 10px;
-            width: 100%;
-            height: 54px;
-            background: #FFFFFF;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-        .metric-header-emoji {
-            font-size: 24px;
-            line-height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 8px;
-        }
-        .metric-header-text {
-            font-family: 'Clan OT', sans-serif;
-            font-style: normal;
-            font-weight: 900;
-            font-size: 22px;
-            line-height: 26px;
-            color: #1B365D;
-            display: flex;
-            align-items: center;
-        }
-        .metric-content {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            padding: 0 20px;
-            gap: 20px;
-            height: 100px;
-            margin-top: 10px;
-            margin-bottom: 40px;
-        }
-        .metric-section {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .metric-label {
-            font-family: 'Clan OT', sans-serif;
-            font-style: normal;
-            font-weight: 700;
-            font-size: 16px;
-            line-height: 20px;
-            color: #FFFFFF;
-            margin-bottom: 4px;
-            text-align: left;
-        }
-        .conversion-container {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .conversion-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .conversion-label {
-            font-family: 'Clan OT', sans-serif;
-            font-style: normal;
-            font-weight: 700;
-            font-size: 14px;
-            line-height: 18px;
-            color: #FFFFFF;
-            width: 40px;
-            text-align: center;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .metric-value {
-            box-sizing: border-box;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 6px 12px;
-            min-width: 80px;
-            height: 34px;
-            background: #FFFFFF;
-            border: 1px solid #E0E0E0;
-            border-radius: 8px;
-            font-family: 'Clan OT', sans-serif;
-            font-style: normal;
-            font-weight: 700;
-            font-size: 16px;
-            line-height: 20px;
-            color: #1B365D;
-        }
-        .metric-improvement {
-            box-sizing: border-box;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 6px 12px;
-            min-width: 100px;
-            height: 34px;
-            background: #FFFFFF;
-            border: 1px solid #E0E0E0;
-            border-radius: 8px;
-            font-family: 'Clan OT', sans-serif;
-            font-style: normal;
-            font-weight: 700;
-            font-size: 16px;
-            line-height: 20px;
-            color: #69BE28;
-        }
-        .p2bb-section {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding-top: 0;
-            width: 100%;
-            margin-top: 0;
-        }
-        .p2bb-chart {
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-top: 0px;
-            align-items: center;
-        }
-        .p2bb-bar {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: auto;
-        }
-        .bar-container {
-            width: 94px;
-            height: 34px;
-            background: #FFFFFF;
-            border-radius: 8px;
-            position: relative;
-            overflow: hidden;
-        }
-        .bar-fill {
-            height: 100%;
-            position: absolute;
-            left: 0;
-            top: 0;
-            background: #3CCFE7;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .bar-value {
-            font-family: 'Clan OT', sans-serif;
-            font-weight: 700;
-            font-size: 14px;
-            position: absolute;
-            width: 100%;
-            text-align: center;
-            z-index: 1;
-        }
-        .significance-label {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-family: 'Clan OT', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            color: white;
-            text-align: center;
-        }
-        .experiment-title-small {
-            background: #3CCFE7;
-            color: #1B365D;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-family: 'Clan OT', sans-serif;
-            font-weight: 700;
-            font-size: 14px;
-            text-align: center;
-            margin: 8px 20px 8px 20px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Determinar los porcentajes y redondearlos
+    baseline = data.get('baseline', {})
+    treatment = data.get('treatment', {})
+    
+    # Obtener nombres de variantes (usar nombres reales)
+    baseline_name = baseline.get('name', 'Baseline')
+    treatment_name = treatment.get('name', 'Treatment')
+    
+    # Extraer KPI del metric_name si está en formato [KPI]
+    kpi_name = ""
+    comparison_text = metric_name
+    if metric_name.startswith('[') and ']' in metric_name:
+        end_bracket = metric_name.find(']')
+        kpi_name = metric_name[1:end_bracket]
+        if len(metric_name) > end_bracket + 1:
+            comparison_text = metric_name[end_bracket + 1:].strip()
+        else:
+            comparison_text = ""
+    
+    if not comparison_text:
+        comparison_text = metric_name
+    
+    # Calcular conversiones
+    baseline_conversion = (baseline.get('x', 0) / baseline.get('n', 1)) * 100 if baseline.get('n', 0) > 0 else 0
+    treatment_conversion = (treatment.get('x', 0) / treatment.get('n', 1)) * 100 if treatment.get('n', 0) > 0 else 0
+    
+    # Determinar los porcentajes P2BB y redondearlos
     v1_percentage = round(results['p2bb'] * 100)
     og_percentage = round((1 - results['p2bb']) * 100)
     
-    # Determinar si es significativo
-    is_significant = results['p_value'] < 0.05
-    significance_text = "✓ Significativo" if is_significant else "✗ No significativo"
-    significance_color = "#2E7D32" if is_significant else "#C62828"
+    # Crear barras de progreso para P2BB (igual que multivariante)
+    p2bb_text_color_baseline = '#FFFFFF' if og_percentage > 60 else '#1B365D'
+    p2bb_text_color_treatment = '#FFFFFF' if v1_percentage > 60 else '#1B365D'
     
-    # Construir HTML con título del experimento
-    experiment_title_html = ""
-    if experiment_title:
-        experiment_title_html = f'<div class="experiment-title-small">🧪 {experiment_title}</div>'
+    p2bb_bar_baseline = f"""<div style="position: relative; width: 120px; height: 28px; background: white; border-radius: 14px; margin: 0 auto; overflow: hidden; border: 1px solid #E0E6ED;"><div style="width: {og_percentage}%; height: 100%; background: #00AEC7; border-radius: 14px; position: absolute; top: 0; left: 0;"></div><span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: {p2bb_text_color_baseline}; font-weight: 600; font-size: 13px; z-index: 1;">{og_percentage}%</span></div>"""
     
-    st.markdown(f"""
-        <div class="metric-card">
-            {experiment_title_html}
-            <div class="metric-header">
-                <span class="metric-header-emoji">🎯</span>
-                <span class="metric-header-text">{metric_name}</span>
-            </div>
-            <div class="metric-content">
-                <div class="metric-section">
-                    <div class="metric-label">Conversion</div>
-                    <div class="conversion-container">
-                        <div class="conversion-row">
-                            <span class="conversion-label" title="{data['baseline']['name']}">{get_smart_label(data['baseline']['name'])}</span>
-                            <div class="metric-value">{results['control_p']*100:.1f}%</div>
-                        </div>
-                        <div class="conversion-row">
-                            <span class="conversion-label" title="{data['treatment']['name']}">{get_smart_label(data['treatment']['name'])}</span>
-                            <div class="metric-value">{results['treatment_p']*100:.1f}%</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="metric-section p2bb-section">
-                    <div class="metric-label">P2BB</div>
-                    <div class="p2bb-chart">
-                        <div class="p2bb-bar">
-                            <div class="bar-container">
-                                <div class="bar-fill" style="width: {og_percentage}%"></div>
-                                <span class="bar-value" style="color: {('#FFFFFF' if og_percentage > 50 else '#3CCFE7')}">{og_percentage}%</span>
-                            </div>
-                        </div>
-                        <div class="p2bb-bar">
-                            <div class="bar-container">
-                                <div class="bar-fill" style="width: {v1_percentage}%"></div>
-                                <span class="bar-value" style="color: {('#FFFFFF' if v1_percentage > 50 else '#3CCFE7')}">{v1_percentage}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="metric-section">
-                    <div class="metric-label">Improvement</div>
-                    <div class="metric-improvement" style="color: {'#69BE28' if results['relative_lift'] > 0 else '#FF0000'}">
-                        {'+' if results['relative_lift'] > 0 else ''}{results['relative_lift']:.2f}%
-                    </div>
-                </div>
-                <div class="metric-section">
-                    <div class="metric-label">P-value</div>
-                    <div class="metric-value">{results['p_value']:.3f}</div>
-                </div>
-            </div>
-            <div class="significance-label" style="background: {significance_color};">
-                {significance_text} (α = 0.05)
-            </div>
+    p2bb_bar_treatment = f"""<div style="position: relative; width: 120px; height: 28px; background: white; border-radius: 14px; margin: 0 auto; overflow: hidden; border: 1px solid #E0E6ED;"><div style="width: {v1_percentage}%; height: 100%; background: #00AEC7; border-radius: 14px; position: absolute; top: 0; left: 0;"></div><span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: {p2bb_text_color_treatment}; font-weight: 600; font-size: 13px; z-index: 1;">{v1_percentage}%</span></div>"""
+    
+    improvement_sign = "+" if results['relative_lift'] > 0 else ""
+    improvement_color = '#27AE60' if results['relative_lift'] > 0 else '#E74C3C'
+    
+    # Crear filas de la tabla (igual estructura que multivariante)
+    table_rows = f"""
+    <tr>
+        <td style="padding: 16px 20px; font-weight: 600; color: #1B365D; font-size: 15px; background: white; text-align: left;">
+            {baseline_name}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline.get('n', 0):,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline.get('x', 0):,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline_conversion:.2f}%
+        </td>
+        <td style="padding: 16px 20px; text-align: center; background: white;">
+            {p2bb_bar_baseline}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; color: #6C7B7F; font-size: 15px; background: white;">
+            -
+        </td>
+        <td style="padding: 16px 20px; text-align: center; color: #6C7B7F; font-size: 15px; background: white;">
+            -
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 16px 20px; font-weight: 600; color: #1B365D; font-size: 15px; background: white; text-align: left;">
+            {treatment_name}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {treatment.get('n', 0):,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {treatment.get('x', 0):,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {treatment_conversion:.2f}%
+        </td>
+        <td style="padding: 16px 20px; text-align: center; background: white;">
+            {p2bb_bar_treatment}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: {improvement_color}; font-size: 15px; background: white;">
+            {improvement_sign}{results['relative_lift']:.1f}%
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {results['p_value']:.5f}
+        </td>
+    </tr>
+    """
+    
+    # HTML completo con la misma estructura que multivariante (en una sola línea)
+    card_html = f"""<div id="result-card-{hash(metric_name)}" style="background: white; border-radius: 16px; margin: 20px auto; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 1000px; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><style>.no-borders-table{{border:none!important;}}.no-borders-table th{{border:none!important;outline:none!important;}}.no-borders-table td{{border:none!important;outline:none!important;}}.no-borders-table tr{{border:none!important;outline:none!important;}}</style><div style="background: #00AEC7; padding: 20px 30px; display: flex; align-items: center; gap: 20px;"><div style="background: #1B365D; color: white; padding: 12px 24px; border-radius: 25px; font-weight: 700; font-size: 16px; text-transform: uppercase;">KPI</div><div style="color: white; font-weight: 600; font-size: 24px; flex: 1;">{experiment_title if experiment_title else comparison_text}</div></div><table class="no-borders-table" style="width: 100%; border-collapse: collapse; border: none;"><thead><tr style="background: #F8FAFB;"><th style="padding: 18px 20px; text-align: left; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Variante</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Sesiones</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Conversiones</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">% Conversión</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">P2BB</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">% Improvement</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">P-value</th></tr></thead><tbody>{table_rows}</tbody></table></div>"""
+    
+    # Usar components.html para mejor renderizado de HTML complejo
+    components.html(card_html, height=400, scrolling=False)
+
+
+def create_multivariant_card(metric_name, variants, experiment_title=None, chi_square_result=None):
+    """
+    Crea una tarjeta estilizada para múltiples variantes (A/B/N).
+    Diseño adaptado del archivo Gradio con tabla blanca y header turquesa.
+    
+    Args:
+        metric_name: Nombre de la métrica
+        variants: Lista de diccionarios con 'name', 'n', 'x'
+        experiment_title: Título opcional del experimento
+        chi_square_result: Resultado del test Chi-cuadrado global (dict con 'significant', 'p_value', etc.)
+    """
+    baseline = variants[0]
+    
+    # Extraer KPI del metric_name si está en formato [KPI]
+    kpi_name = ""
+    comparison_text = metric_name
+    if metric_name.startswith('[') and ']' in metric_name:
+        end_bracket = metric_name.find(']')
+        kpi_name = metric_name[1:end_bracket]
+        if len(metric_name) > end_bracket + 1:
+            comparison_text = metric_name[end_bracket + 1:].strip()
+        else:
+            comparison_text = ""
+    
+    if not comparison_text:
+        comparison_text = metric_name
+
+    # Crear filas de la tabla
+    table_rows = ""
+    
+    # Baseline
+    baseline_conversion = (baseline['x'] / baseline['n']) * 100 if baseline['n'] > 0 else 0
+    table_rows += f"""
+    <tr>
+        <td style="padding: 16px 20px; font-weight: 600; color: #1B365D; font-size: 15px; background: white; text-align: left;">
+            {baseline['name']}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline['n']:,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline['x']:,}
+        </td>
+        <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+            {baseline_conversion:.2f}%
+        </td>
+        <td style="padding: 16px 20px; text-align: center; color: #6C7B7F; font-size: 15px; background: white;">
+            -
+        </td>
+        <td style="padding: 16px 20px; text-align: center; color: #6C7B7F; font-size: 15px; background: white;">
+            -
+        </td>
+        <td style="padding: 16px 20px; text-align: center; color: #6C7B7F; font-size: 15px; background: white;">
+            -
+        </td>
+    </tr>
+    """
+    
+    # Variantes
+    for variant in variants[1:]:
+        comparison = calculate_single_comparison(baseline, variant)
+        variant_conversion = (variant['x'] / variant['n']) * 100 if variant['n'] > 0 else 0
+        
+        improvement_sign = "+" if comparison['relative_lift'] > 0 else ""
+        p2bb_percentage = comparison['p2bb'] * 100
+        
+        # Crear barra de progreso para P2BB con borde visible y texto azul JetSMART
+        # Color blanco solo si es mayor a 60%, de lo contrario azul
+        p2bb_text_color = '#FFFFFF' if p2bb_percentage > 60 else '#1B365D'
+        p2bb_bar = f"""
+        <div style="position: relative; width: 120px; height: 28px; background: white; border-radius: 14px; margin: 0 auto; overflow: hidden; border: 1px solid #E0E6ED;">
+            <div style="width: {p2bb_percentage:.0f}%; height: 100%; background: #00AEC7; border-radius: 14px; position: absolute; top: 0; left: 0;"></div>
+            <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: {p2bb_text_color}; font-weight: 600; font-size: 13px; z-index: 1;">
+                {p2bb_percentage:.0f}%
+            </span>
         </div>
-    """, unsafe_allow_html=True)
+        """
+        
+        table_rows += f"""
+        <tr>
+            <td style="padding: 16px 20px; font-weight: 600; color: #1B365D; font-size: 15px; background: white; text-align: left;">
+                {variant['name']}
+            </td>
+            <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+                {variant['n']:,}
+            </td>
+            <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+                {variant['x']:,}
+            </td>
+            <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+                {variant_conversion:.2f}%
+            </td>
+            <td style="padding: 16px 20px; text-align: center; background: white;">
+                {p2bb_bar}
+            </td>
+            <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: {'#27AE60' if comparison['relative_lift'] > 0 else '#E74C3C'}; font-size: 15px; background: white;">
+                {improvement_sign}{comparison['relative_lift']:.1f}%
+            </td>
+            <td style="padding: 16px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: white;">
+                {comparison['p_value']:.5f}
+            </td>
+        </tr>
+        """
+    
+    # HTML completo de la tarjeta con el diseño exacto de la imagen (en una sola línea para evitar problemas de renderizado)
+    # Siempre mostrar "KPI" en el label, independientemente del kpi_name extraído
+    card_html = f"""<div id="result-card-{hash(metric_name)}" style="background: white; border-radius: 16px; margin: 20px auto; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 1000px; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"><style>.no-borders-table{{border:none!important;}}.no-borders-table th{{border:none!important;outline:none!important;}}.no-borders-table td{{border:none!important;outline:none!important;}}.no-borders-table tr{{border:none!important;outline:none!important;}}</style><div style="background: #00AEC7; padding: 20px 30px; display: flex; align-items: center; gap: 20px;"><div style="background: #1B365D; color: white; padding: 12px 24px; border-radius: 25px; font-weight: 700; font-size: 16px; text-transform: uppercase;">KPI</div><div style="color: white; font-weight: 600; font-size: 24px; flex: 1;">{experiment_title if experiment_title else comparison_text}</div></div><table class="no-borders-table" style="width: 100%; border-collapse: collapse; border: none;"><thead><tr style="background: #F8FAFB;"><th style="padding: 18px 20px; text-align: left; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Variante</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Sesiones</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">Conversiones</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">% Conversión</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">P2BB</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">% Improvement</th><th style="padding: 18px 20px; text-align: center; font-weight: 600; color: #1B365D; font-size: 15px; background: #F8FAFB;">P-value</th></tr></thead><tbody>{table_rows}</tbody></table></div>"""
+    
+    # Resumen de significancia basado en el test Chi-cuadrado global
+    # Solo mostrar mensaje cuando hay test global (chi_square_result)
+    # Para comparaciones individuales, la significancia ya se muestra en la tabla (columna P-value)
+    if chi_square_result is not None:
+        is_globally_significant = chi_square_result.get('significant', False)
+        if is_globally_significant:
+            # Hay diferencias significativas globalmente
+            significant_variants = [v['name'] for v in variants[1:] 
+                                   if calculate_single_comparison(baseline, v)['significant']]
+            if significant_variants:
+                summary_html = f'<div style="background: #E8F5E8; color: #2E7D32; padding: 16px 24px; border-radius: 12px; margin: 20px auto; max-width: 1000px; text-align: center; font-weight: 700; font-size: 15px; border: 2px solid #27AE60; box-shadow: 0 4px 12px rgba(46, 125, 50, 0.15); font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">✅ Diferencias significativas detectadas - Variantes: {", ".join(significant_variants)}</div>'
+            else:
+                summary_html = '<div style="background: #E8F5E8; color: #2E7D32; padding: 16px 24px; border-radius: 12px; margin: 20px auto; max-width: 1000px; text-align: center; font-weight: 700; font-size: 15px; border: 2px solid #27AE60; box-shadow: 0 4px 12px rgba(46, 125, 50, 0.15); font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">✅ Diferencias significativas detectadas globalmente</div>'
+        else:
+            # No hay diferencias significativas globalmente - usar diseño similar a la cajita
+            summary_html = '<div style="background: white; color: #1B365D; padding: 16px 24px; border-radius: 12px; margin: 20px auto; max-width: 1000px; text-align: center; font-weight: 700; font-size: 15px; border: 2px solid #00AEC7; box-shadow: 0 4px 12px rgba(0, 174, 199, 0.15); font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">⚠️ Sin diferencias significativas (p-value: {:.4f})</div>'.format(chi_square_result.get('p_value', 1.0))
+    else:
+        # No hay test global - no mostrar mensaje de resumen
+        # Las comparaciones individuales ya muestran su significancia en la tabla
+        summary_html = ''
+    
+    # Usar components.html para mejor renderizado de HTML complejo
+    components.html(card_html + summary_html, height=400, scrolling=False)
 
 
 def create_comparison_matrix(metric_name, variants):
