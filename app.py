@@ -455,165 +455,56 @@ def run_ui():
                     # Inicializar mapeo de filtros (se usará más adelante)
                     event_filters_map_quick = {}
                     metrics_to_process = []  # Inicializar siempre
+                    PREDEFINED_METRICS_QUICK = {}  # Inicializar como diccionario vacío
                     
-                    # Importar métricas de baggage
+                    # Cargar métricas automáticamente desde todas las carpetas
                     try:
-                        from metrics.baggage.baggage_metrics import (
-                            NSR_BAGGAGE,
-                            NSR_BAGGAGE_DB,
-                            WCR_BAGGAGE,
-                            WCR_BAGGAGE_VUELA_LIGERO,
-                            CABIN_BAG_A2C,
-                            CABIN_BAG_A2C_DB,
-                            CHECKED_BAG_A2C,
-                            CHECKED_BAG_A2C_DB,
-                            NSR_BAGGAGE_VUELA_LIGERO,
-                            NSR_BAGGAGE_VUELA_LIGERO_DB
+                        from utils.metrics_loader import (
+                            load_all_metrics,
+                            get_all_metrics_flat,
+                            get_metrics_info
                         )
                         
-                        # Usar las mismas métricas predefinidas
-                        PREDEFINED_METRICS_QUICK = {
-                            "🎒 NSR Baggage (Next Step Rate)": NSR_BAGGAGE,
-                            "🎒 NSR Baggage DB (Next Step Rate)": NSR_BAGGAGE_DB,
-                            "💰 WCR Baggage (Website Conversion Rate)": WCR_BAGGAGE,
-                            "✈️ WCR Baggage Vuela Ligero": WCR_BAGGAGE_VUELA_LIGERO,
-                            "🎒 Cabin Bag A2C": CABIN_BAG_A2C,
-                            "🎒 Cabin Bag A2C DB": CABIN_BAG_A2C_DB,
-                            "🧳 Checked Bag A2C": CHECKED_BAG_A2C,
-                            "🧳 Checked Bag A2C DB": CHECKED_BAG_A2C_DB,
-                            "🎒 NSR Baggage Vuela Ligero (Next Step Rate)": NSR_BAGGAGE_VUELA_LIGERO,
-                            "🎒 NSR Baggage Vuela Ligero DB (Next Step Rate)": NSR_BAGGAGE_VUELA_LIGERO_DB
-                        }
+                        # Cargar todas las métricas organizadas por categoría
+                        metrics_by_category = load_all_metrics()
+                        
+                        # Obtener todas las métricas en un diccionario plano
+                        PREDEFINED_METRICS_QUICK = get_all_metrics_flat(metrics_by_category)
                         
                         # Mostrar información de métricas disponibles
-                        with st.expander("📚 Ver Métricas Disponibles", expanded=False):
-                            # Función auxiliar para extraer nombre de evento de tupla
-                            def get_event_name(event_item):
-                                if isinstance(event_item, tuple) and len(event_item) > 0:
-                                    return event_item[0]
-                                elif isinstance(event_item, str):
-                                    return event_item
-                                return "-"
-                            
-                            # Función auxiliar para obtener filtros de un evento
-                            def get_event_filters(event_item):
-                                if isinstance(event_item, tuple) and len(event_item) >= 2:
-                                    # Formato nuevo: ('evento', [filtros])
-                                    filters_list = event_item[1]
-                                    if isinstance(filters_list, list):
-                                        return f"{len(filters_list)} filtro(s)" if filters_list else "Ninguno"
-                                    return "Ninguno"
-                                elif isinstance(event_item, tuple) and len(event_item) == 1:
-                                    # Formato antiguo: ('evento',) - sin filtros
-                                    return "Ninguno"
-                                elif isinstance(event_item, str):
-                                    return "Ninguno"
-                                return "Ninguno"
-                            
-                            # Función auxiliar para obtener descripción de filtros más detallada
-                            def get_filters_description(metric_events):
-                                if not metric_events:
-                                    return "Ninguno"
+                        if PREDEFINED_METRICS_QUICK:
+                            with st.expander("📚 Ver Métricas Disponibles", expanded=False):
+                                # Generar información automáticamente
+                                metrics_info_quick = get_metrics_info(PREDEFINED_METRICS_QUICK)
                                 
-                                filters_info = []
-                                for event_item in metric_events:
-                                    if isinstance(event_item, tuple) and len(event_item) >= 2:
-                                        filters_list = event_item[1]
-                                        if isinstance(filters_list, list) and filters_list:
-                                            filters_info.append(f"{len(filters_list)} filtro(s)")
-                                        else:
-                                            filters_info.append("Ninguno")
-                                    else:
-                                        filters_info.append("Ninguno")
-                                
-                                # Si todos tienen los mismos filtros, simplificar
-                                if len(set(filters_info)) == 1:
-                                    return filters_info[0] if filters_info[0] != "Ninguno" else "Ninguno"
+                                if metrics_info_quick:
+                                    df_metrics_quick = pd.DataFrame(metrics_info_quick)
+                                    st.dataframe(
+                                        df_metrics_quick,
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
                                 else:
-                                    return f"Variados ({', '.join(set(filters_info))})"
-                            
-                            metrics_info_quick = [
-                                {
-                                    "Métrica": "🎒 NSR Baggage",
-                                    "Evento Inicial": get_event_name(NSR_BAGGAGE.get('events', [])[0]) if NSR_BAGGAGE.get('events') else "-",
-                                    "Evento Final": get_event_name(NSR_BAGGAGE.get('events', [])[1]) if len(NSR_BAGGAGE.get('events', [])) > 1 else "-",
-                                    "Filtros": "Ninguno"
-                                },
-                                {
-                                    "Métrica": "🎒 NSR Baggage DB",
-                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_DB.get('events', [])[0]) if NSR_BAGGAGE_DB.get('events') else "-",
-                                    "Evento Final": get_event_name(NSR_BAGGAGE_DB.get('events', [])[1]) if len(NSR_BAGGAGE_DB.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB (ambos eventos)"
-                                },
-                                {
-                                    "Métrica": "✈️ NSR Baggage Vuela Ligero",
-                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])[0]) if NSR_BAGGAGE_VUELA_LIGERO.get('events') else "-",
-                                    "Evento Final": get_event_name(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])[1]) if len(NSR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
-                                    "Filtros": "Ninguno"
-                                },
-                                {
-                                    "Métrica": "✈️ NSR Baggage Vuela Ligero DB",
-                                    "Evento Inicial": get_event_name(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])[0]) if NSR_BAGGAGE_VUELA_LIGERO_DB.get('events') else "-",
-                                    "Evento Final": get_event_name(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])[1]) if len(NSR_BAGGAGE_VUELA_LIGERO_DB.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB (ambos eventos)"
-                                },
-                                {
-                                    "Métrica": "💰 WCR Baggage",
-                                    "Evento Inicial": get_event_name(WCR_BAGGAGE.get('events', [])[0]) if WCR_BAGGAGE.get('events') else "-",
-                                    "Evento Final": get_event_name(WCR_BAGGAGE.get('events', [])[1]) if len(WCR_BAGGAGE.get('events', [])) > 1 else "-",
-                                    "Filtros": "Ninguno"
-                                },
-                                {
-                                    "Métrica": "✈️ WCR Vuela Ligero",
-                                    "Evento Inicial": get_event_name(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[0]) if WCR_BAGGAGE_VUELA_LIGERO.get('events') else "-",
-                                    "Evento Final": get_event_name(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])[1]) if len(WCR_BAGGAGE_VUELA_LIGERO.get('events', [])) > 1 else "-",
-                                    "Filtros": "Ninguno"
-                                },
-                                {
-                                    "Métrica": "🎒 Cabin Bag A2C",
-                                    "Evento Inicial": get_event_name(CABIN_BAG_A2C.get('events', [])[0]) if CABIN_BAG_A2C.get('events') else "-",
-                                    "Evento Final": get_event_name(CABIN_BAG_A2C.get('events', [])[1]) if len(CABIN_BAG_A2C.get('events', [])) > 1 else "-",
-                                    "Filtros": "cabin_bag (evento final)"
-                                },
-                                {
-                                    "Métrica": "🎒 Cabin Bag A2C DB",
-                                    "Evento Inicial": get_event_name(CABIN_BAG_A2C_DB.get('events', [])[0]) if CABIN_BAG_A2C_DB.get('events') else "-",
-                                    "Evento Final": get_event_name(CABIN_BAG_A2C_DB.get('events', [])[1]) if len(CABIN_BAG_A2C_DB.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB + cabin_bag"
-                                },
-                                {
-                                    "Métrica": "🧳 Checked Bag A2C",
-                                    "Evento Inicial": get_event_name(CHECKED_BAG_A2C.get('events', [])[0]) if CHECKED_BAG_A2C.get('events') else "-",
-                                    "Evento Final": get_event_name(CHECKED_BAG_A2C.get('events', [])[1]) if len(CHECKED_BAG_A2C.get('events', [])) > 1 else "-",
-                                    "Filtros": "checked_bag (evento final)"
-                                },
-                                {
-                                    "Métrica": "🧳 Checked Bag A2C DB",
-                                    "Evento Inicial": get_event_name(CHECKED_BAG_A2C_DB.get('events', [])[0]) if CHECKED_BAG_A2C_DB.get('events') else "-",
-                                    "Evento Final": get_event_name(CHECKED_BAG_A2C_DB.get('events', [])[1]) if len(CHECKED_BAG_A2C_DB.get('events', [])) > 1 else "-",
-                                    "Filtros": "DB + checked_bag"
-                                }
-                            ]
-                            
-                            df_metrics_quick = pd.DataFrame(metrics_info_quick)
-                            st.dataframe(
-                                df_metrics_quick,
-                                use_container_width=True,
-                                hide_index=True
-                            )
+                                    st.info("No se encontraron métricas con información válida")
+                        else:
+                            st.warning("⚠️ No se encontraron métricas. Asegúrate de tener archivos *_metrics.py en las carpetas de metrics/")
                         
                         # Crear dos columnas para separar métricas y eventos
                         col_metrics, col_events = st.columns(2)
                         
                         with col_metrics:
                             st.markdown("#### 🎯 Métricas Predefinidas")
-                            selected_metrics_quick = st.multiselect(
-                                "Métricas:",
-                                options=list(PREDEFINED_METRICS_QUICK.keys()),
-                                default=[],
-                                key="metrics_quick",
-                                help="Métricas completas predefinidas"
-                            )
+                            if PREDEFINED_METRICS_QUICK:
+                                selected_metrics_quick = st.multiselect(
+                                    "Métricas:",
+                                    options=list(PREDEFINED_METRICS_QUICK.keys()),
+                                    default=[],
+                                    key="metrics_quick",
+                                    help="Métricas completas predefinidas"
+                                )
+                            else:
+                                st.info("No hay métricas disponibles. Agrega archivos *_metrics.py en las carpetas de metrics/")
+                                selected_metrics_quick = []
                         
                         with col_events:
                             st.markdown("#### 📊 Eventos Individuales")
@@ -710,8 +601,17 @@ def run_ui():
                                 unique_events_quick.append(x)
                         selected_events_quick = unique_events_quick
                         
-                    except ImportError:
-                        # Si no están definidas las métricas, usar solo eventos
+                    except Exception as e:
+                        # Si hay error cargando métricas, mostrar mensaje y permitir usar solo eventos
+                        st.warning(f"⚠️ Error cargando métricas automáticamente: {e}")
+                        st.info("💡 Puedes usar eventos individuales mientras tanto")
+                        
+                        # Asegurar que PREDEFINED_METRICS_QUICK esté definido
+                        if 'PREDEFINED_METRICS_QUICK' not in locals():
+                            PREDEFINED_METRICS_QUICK = {}
+                        
+                        # Permitir seleccionar eventos individuales
+                        selected_metrics_quick = []
                         selected_events_raw_quick = st.multiselect(
                             "Eventos a analizar:",
                             options=AVAILABLE_EVENTS,
@@ -725,7 +625,7 @@ def run_ui():
                                 'events': selected_events_raw_quick,
                                 'filters': {}
                             })
-                        selected_events_quick = selected_events_raw_quick
+                        selected_events_quick = selected_events_raw_quick if selected_events_raw_quick else []
                     
                     # Botón para ejecutar análisis rápido
                     col1, col2, col3 = st.columns([1, 1, 1])
@@ -961,12 +861,8 @@ def run_ui():
                         prepare_variants_from_dataframe,
                         calculate_ab_test,
                         calculate_chi_square_test,
-                        calculate_all_pairwise_comparisons,
                         create_metric_card,
-                        create_multivariant_card,
-                        create_comparison_matrix,
-                        create_comparison_cards,
-                        create_visualization
+                        create_multivariant_card
                     )
                     
                     # Procesar cada métrica y mostrar en su propio recuadro
@@ -997,12 +893,15 @@ def run_ui():
                             available_stages = df_analysis['Funnel Stage'].unique().tolist()
                             
                             # Obtener el orden correcto de eventos desde la configuración de la métrica
-                            # Buscar la configuración en PREDEFINED_METRICS_QUICK
+                            # Cargar métricas automáticamente para buscar la configuración
                             metric_config = None
-                            for display_name, config in PREDEFINED_METRICS_QUICK.items():
-                                if display_name == metric_display_name:
-                                    metric_config = config
-                                    break
+                            try:
+                                from utils.metrics_loader import get_all_metrics_flat
+                                all_metrics = get_all_metrics_flat()
+                                metric_config = all_metrics.get(metric_display_name)
+                            except Exception:
+                                # Si no se pueden cargar, continuar sin configuración
+                                pass
                             
                             # Determinar initial_stage y final_stage según el orden de eventos en la métrica
                             if metric_config and 'events' in metric_config and len(metric_config['events']) >= 2:
@@ -1026,15 +925,29 @@ def run_ui():
                                     """Normaliza el nombre del evento removiendo prefijos y espacios"""
                                     # Remover prefijos comunes como [Amplitude]
                                     name = name.replace('[Amplitude]', '').strip()
-                                    # Remover espacios y convertir a minúsculas para comparación
-                                    # También remover guiones bajos para comparación más flexible
-                                    return name.lower().replace(' ', '_').replace('_', '')
+                                    # Manejar custom events con prefijo ce:
+                                    if name.startswith('ce:'):
+                                        name = name[3:].strip()  # Remover 'ce:'
+                                        # Remover paréntesis si existen: 'ce:(NEW) evento' -> 'evento'
+                                        if name.startswith('('):
+                                            end_paren = name.find(')')
+                                            if end_paren != -1:
+                                                name = name[end_paren + 1:].strip()
+                                    # Convertir a minúsculas y normalizar espacios
+                                    return name.lower().strip()
                                 
                                 # Función auxiliar para extraer palabra clave del evento
                                 def get_event_keyword(name):
                                     """Extrae la palabra clave principal del nombre del evento"""
                                     # Remover prefijos
                                     name = name.replace('[Amplitude]', '').strip()
+                                    # Manejar custom events
+                                    if name.startswith('ce:'):
+                                        name = name[3:].strip()
+                                        if name.startswith('('):
+                                            end_paren = name.find(')')
+                                            if end_paren != -1:
+                                                name = name[end_paren + 1:].strip()
                                     # Convertir a minúsculas
                                     name = name.lower()
                                     # Si tiene guiones bajos, tomar la primera parte (más significativa)
@@ -1047,76 +960,78 @@ def run_ui():
                                     # (para '[Amplitude] Revenue' → 'revenue')
                                     return name
                                 
-                                # Buscar coincidencias exactas primero
-                                initial_stage = None
-                                final_stage = None
-                                
-                                # Normalizar y extraer palabras clave
-                                normalized_first = normalize_event_name(event_names[0])
-                                keyword_first = get_event_keyword(event_names[0])
+                                # Función auxiliar para buscar stage por evento
+                                def find_stage_by_event(event_name, available_stages, exclude_stage=None):
+                                    """Busca un stage que coincida con el nombre del evento"""
+                                    # Normalizar el evento
+                                    normalized_event = normalize_event_name(event_name)
+                                    keyword_event = get_event_keyword(event_name)
+                                    
+                                    # 1. Coincidencia exacta
+                                    for stage in available_stages:
+                                        if stage == event_name and stage != exclude_stage:
+                                            return stage
+                                    
+                                    # 2. Coincidencia normalizada exacta
+                                    for stage in available_stages:
+                                        if stage != exclude_stage:
+                                            normalized_stage = normalize_event_name(stage)
+                                            if normalized_event == normalized_stage:
+                                                return stage
+                                    
+                                    # 3. Coincidencia por palabra clave
+                                    for stage in available_stages:
+                                        if stage != exclude_stage:
+                                            keyword_stage = get_event_keyword(stage)
+                                            if keyword_event == keyword_stage and keyword_event:
+                                                return stage
+                                    
+                                    # 4. Coincidencia parcial (el evento contiene el stage o viceversa)
+                                    for stage in available_stages:
+                                        if stage != exclude_stage:
+                                            normalized_stage = normalize_event_name(stage)
+                                            keyword_stage = get_event_keyword(stage)
+                                            if (normalized_event in normalized_stage or normalized_stage in normalized_event or
+                                                keyword_event in keyword_stage or keyword_stage in keyword_event):
+                                                return stage
+                                    
+                                    return None
                                 
                                 # Buscar el primer evento (initial_stage) - debe ser el denominador
-                                for stage in available_stages:
-                                    # Coincidencia exacta
-                                    if event_names[0] == stage:
-                                        initial_stage = stage
-                                        break
-                                    # Buscar por palabra clave primero (más flexible)
-                                    keyword_stage = get_event_keyword(stage)
-                                    if keyword_first == keyword_stage:
-                                        initial_stage = stage
-                                        break
-                                    # Buscar por nombre normalizado (sin prefijos y sin guiones bajos)
-                                    normalized_stage = normalize_event_name(stage)
-                                    if normalized_first == normalized_stage:
-                                        initial_stage = stage
-                                        break
-                                
-                                # Normalizar y extraer palabras clave del último evento
-                                normalized_last = normalize_event_name(event_names[-1])
-                                keyword_last = get_event_keyword(event_names[-1])
+                                initial_stage = find_stage_by_event(event_names[0], available_stages)
                                 
                                 # Buscar el último evento (final_stage) - debe ser el numerador
-                                for stage in available_stages:
-                                    # Coincidencia exacta
-                                    if event_names[-1] == stage:
-                                        final_stage = stage
-                                        break
-                                    # Buscar por palabra clave primero (más flexible)
-                                    keyword_stage = get_event_keyword(stage)
-                                    if keyword_last == keyword_stage:
-                                        final_stage = stage
-                                        break
-                                    # Buscar por nombre normalizado (sin prefijos y sin guiones bajos)
-                                    normalized_stage = normalize_event_name(stage)
-                                    if normalized_last == normalized_stage:
-                                        final_stage = stage
-                                        break
-                                
-                                # Si aún no hay coincidencias, buscar por contenido (más flexible)
-                                if not initial_stage:
-                                    for stage in available_stages:
-                                        normalized_stage = normalize_event_name(stage)
-                                        keyword_stage = get_event_keyword(stage)
-                                        if (normalized_first in normalized_stage or normalized_stage in normalized_first or
-                                            keyword_first in keyword_stage or keyword_stage in keyword_first):
-                                            initial_stage = stage
-                                            break
-                                
-                                if not final_stage:
-                                    for stage in available_stages:
-                                        normalized_stage = normalize_event_name(stage)
-                                        keyword_stage = get_event_keyword(stage)
-                                        if (normalized_last in normalized_stage or normalized_stage in normalized_last or
-                                            keyword_last in keyword_stage or keyword_stage in keyword_last):
-                                            final_stage = stage
-                                            break
+                                # Excluir initial_stage para asegurar que sean diferentes
+                                final_stage = find_stage_by_event(event_names[-1], available_stages, exclude_stage=initial_stage)
                                 
                                 # Si aún no se encuentran, usar orden alfabético como fallback
+                                # PERO asegurando que siempre sean diferentes
                                 if not initial_stage or not final_stage:
                                     funnel_stages = sorted(available_stages)
-                                    initial_stage = funnel_stages[0] if not initial_stage else initial_stage
-                                    final_stage = funnel_stages[-1] if (not final_stage and len(funnel_stages) > 1) else (final_stage if final_stage else funnel_stages[0])
+                                    
+                                    if not initial_stage:
+                                        initial_stage = funnel_stages[0]
+                                    
+                                    if not final_stage:
+                                        # Buscar un stage diferente al initial_stage
+                                        for stage in funnel_stages:
+                                            if stage != initial_stage:
+                                                final_stage = stage
+                                                break
+                                        # Si no hay otro stage, usar el último (que debería ser diferente si hay más de uno)
+                                        if not final_stage:
+                                            if len(funnel_stages) > 1:
+                                                final_stage = funnel_stages[-1]
+                                            else:
+                                                # Solo hay un stage disponible - no podemos hacer análisis
+                                                initial_stage = None
+                                                final_stage = None
+                                    
+                                    # Verificación final: asegurar que sean diferentes
+                                    if initial_stage == final_stage and len(funnel_stages) > 1:
+                                        # Si son iguales pero hay más stages, usar el primero y el último
+                                        initial_stage = funnel_stages[0]
+                                        final_stage = funnel_stages[-1]
                             else:
                                 # Fallback: usar orden alfabético inteligente (ignorando prefijos)
                                 # Normalizar nombres para ordenar (remover [Amplitude] y otros prefijos)
@@ -1139,9 +1054,8 @@ def run_ui():
                                 initial_stage = sorted_stages[0]
                                 final_stage = sorted_stages[-1] if len(sorted_stages) > 1 else sorted_stages[0]
                             
-                            if len(available_stages) >= 2:
-                                
-                                if initial_stage != final_stage:
+                            # Verificar que tenemos stages válidos y diferentes
+                            if initial_stage and final_stage and initial_stage != final_stage:
                                     # Preparar variantes
                                     variants = prepare_variants_from_dataframe(
                                         df_analysis,
@@ -1184,40 +1098,38 @@ def run_ui():
                                             
                                             # Mostrar tarjeta multivariante con diseño de tabla
                                             create_multivariant_card(metric_display_name, variants, experiment_name_stat, chi_square_result)
-                                            
-                                            # Análisis detallado (colapsado)
-                                            with st.expander(f"📋 Análisis Detallado - {metric_display_name}", expanded=False):
-                                                # Dos columnas para matriz y gráfico
-                                                col_matrix, col_chart = st.columns([1, 1])
-                                                
-                                                with col_matrix:
-                                                    create_comparison_matrix(metric_display_name, variants)
-                                                
-                                                with col_chart:
-                                                    fig = create_visualization(metric_display_name, variants)
-                                                    st.plotly_chart(fig, use_container_width=True)
-                                                
-                                                # Todas las comparaciones pareadas
-                                                st.markdown("### 🔍 Todas las Comparaciones Pareadas")
-                                                all_comparisons = calculate_all_pairwise_comparisons(variants)
-                                                
-                                                # Separar comparaciones vs control de comparaciones entre variantes
-                                                control_comparisons = [comp for comp in all_comparisons if comp['is_control_comparison']]
-                                                variant_comparisons = [comp for comp in all_comparisons if not comp['is_control_comparison']]
-                                                
-                                                if control_comparisons:
-                                                    st.markdown("#### 📊 Comparaciones vs Control")
-                                                    create_comparison_cards(control_comparisons, is_control_section=True)
-                                                
-                                                if variant_comparisons:
-                                                    st.markdown("#### 🔄 Comparaciones entre Variantes")
-                                                    create_comparison_cards(variant_comparisons, is_control_section=False)
                                     else:
                                         st.warning(f"⚠️ Se necesitan al menos 2 variantes para el análisis estadístico de '{metric_display_name}'. Se encontraron {len(variants)} variantes.")
-                                else:
-                                    st.warning(f"⚠️ La etapa inicial y final deben ser diferentes para un análisis válido de '{metric_display_name}'")
                             else:
-                                st.warning(f"⚠️ Se necesitan al menos 2 etapas del funnel para realizar el análisis estadístico de '{metric_display_name}'")
+                                # Construir mensaje de error más informativo
+                                error_msg = f"⚠️ **No se pudieron encontrar etapas diferentes** para la métrica '{metric_display_name}'\n\n"
+                                
+                                if metric_config and 'events' in metric_config:
+                                    event_names = []
+                                    for event_item in metric_config['events']:
+                                        if isinstance(event_item, tuple) and len(event_item) > 0:
+                                            event_names.append(event_item[0])
+                                        elif isinstance(event_item, str):
+                                            event_names.append(event_item)
+                                    
+                                    if event_names:
+                                        error_msg += f"**Eventos esperados:**\n"
+                                        error_msg += f"- Inicial: `{event_names[0]}`\n"
+                                        error_msg += f"- Final: `{event_names[-1]}`\n\n"
+                                
+                                error_msg += f"**Etapas disponibles en los datos:** {', '.join(f'`{s}`' for s in available_stages)}\n\n"
+                                
+                                if initial_stage and final_stage:
+                                    error_msg += f"**Etapas detectadas:** Inicial=`{initial_stage}`, Final=`{final_stage}` (son iguales)\n\n"
+                                elif not initial_stage or not final_stage:
+                                    error_msg += f"**Problema:** No se pudo encontrar una coincidencia para los eventos de la métrica en los datos disponibles.\n\n"
+                                
+                                error_msg += "💡 **Sugerencias:**\n"
+                                error_msg += "- Verifica que los eventos de la métrica coincidan con los nombres en los datos\n"
+                                error_msg += "- Asegúrate de que haya al menos 2 etapas diferentes en el funnel\n"
+                                error_msg += "- Revisa que los custom events (ce:) estén correctamente formateados"
+                                
+                                st.warning(error_msg)
                         else:
                             # Si no hay Funnel Stage, hacer análisis simple por variante
                             st.info(f"ℹ️ No se detectó columna 'Funnel Stage' para '{metric_display_name}'. Realizando análisis simple por variante.")
@@ -1259,186 +1171,6 @@ def run_ui():
                         
                         # Separador entre métricas
                         st.markdown("<hr style='margin: 40px 0; border: 1px solid #3CCFE7;'>", unsafe_allow_html=True)
-            else:
-                # Formato antiguo: un solo DataFrame
-                df_analysis = st.session_state['analysis_df']
-                
-                # Mostrar información del experimento
-                st.markdown(f"""
-                <div style="background: linear-gradient(90deg, #1B365D 0%, #4A6489 100%); 
-                            border: 2px solid #3CCFE7; 
-                            border-radius: 12px; 
-                            padding: 20px; 
-                            margin: 20px 0; 
-                            text-align: center;">
-                    <h3 style="color: white; margin: 0; font-size: 1.3em;">
-                        🧪 {experiment_name_stat} ({experiment_id_stat})
-                    </h3>
-                    <p style="color: #E0E0E0; margin: 10px 0 0 0;">
-                        Total de registros: {len(df_analysis):,}
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Verificar si tiene Funnel Stage
-            if 'Funnel Stage' in df_analysis.columns:
-                # Obtener etapas únicas del funnel
-                available_stages = df_analysis['Funnel Stage'].unique().tolist()
-                
-                # Intentar obtener la configuración de métrica desde session_state si está disponible
-                # (para el formato antiguo, no tenemos acceso directo a PREDEFINED_METRICS_QUICK)
-                # Usar orden alfabético como fallback
-                funnel_stages = sorted(available_stages)
-                
-                if len(funnel_stages) >= 2:
-                    # Usar automáticamente la primera y última etapa del funnel (orden alfabético)
-                    initial_stage = funnel_stages[0]
-                    final_stage = funnel_stages[-1] if len(funnel_stages) > 1 else funnel_stages[0]
-                    
-                    if initial_stage != final_stage:
-                        # Preparar variantes
-                        from utils.statistical_analysis import (
-                            prepare_variants_from_dataframe,
-                            calculate_ab_test,
-                            calculate_chi_square_test,
-                            calculate_all_pairwise_comparisons,
-                            create_metric_card,
-                            create_multivariant_card,
-                            create_comparison_matrix,
-                            create_comparison_cards,
-                            create_visualization
-                        )
-                        
-                        variants = prepare_variants_from_dataframe(
-                            df_analysis,
-                            initial_stage=initial_stage,
-                            final_stage=final_stage
-                        )
-                        
-                        if len(variants) >= 2:
-                            # Análisis según número de variantes
-                            if len(variants) == 2:
-                                # Análisis A/B simple
-                                st.markdown("### 📊 Análisis A/B")
-                                
-                                control = variants[0]
-                                treatment = variants[1]
-                                
-                                results = calculate_ab_test(
-                                    control['n'], control['x'],
-                                    treatment['n'], treatment['x']
-                                )
-                                
-                                # Crear estructura de datos para la tarjeta
-                                comparison_data = {
-                                    'baseline': control,
-                                    'treatment': treatment
-                                }
-                                
-                                # Mostrar tarjeta de métrica
-                                metric_name = f"{initial_stage} → {final_stage}"
-                                create_metric_card(metric_name, comparison_data, results, experiment_name_stat)
-                                
-                            else:
-                                # Análisis multivariante - usar diseño de tabla
-                                st.markdown("### 📊 Análisis Multivariante")
-                                
-                                # Test Chi-cuadrado global
-                                chi_square_result = calculate_chi_square_test(variants)
-                                with st.expander("📊 Test Chi-cuadrado Global", expanded=True):
-                                    st.markdown(f"""
-                                    **Test Chi-cuadrado:** {'✓ Significativo' if chi_square_result['significant'] else '✗ No significativo'} 
-                                    (p-value: {chi_square_result['p_value']:.4f}, χ²: {chi_square_result['chi2']:.2f})
-                                    
-                                    Este test evalúa si existe una diferencia significativa entre **todas** las variantes de forma global.
-                                    """)
-                                
-                                # Mostrar tarjeta multivariante con diseño de tabla
-                                metric_name = f"{initial_stage} → {final_stage}"
-                                create_multivariant_card(metric_name, variants, experiment_name_stat, chi_square_result)
-                                
-                                # Análisis detallado (colapsado)
-                                with st.expander("📋 Análisis Detallado", expanded=False):
-                                    # Dos columnas para matriz y gráfico
-                                    col_matrix, col_chart = st.columns([1, 1])
-                                    
-                                    with col_matrix:
-                                        metric_name = f"{initial_stage} → {final_stage}"
-                                        create_comparison_matrix(metric_name, variants)
-                                    
-                                    with col_chart:
-                                        fig = create_visualization(metric_name, variants)
-                                        st.plotly_chart(fig, use_container_width=True)
-                                    
-                                    # Todas las comparaciones pareadas
-                                    st.markdown("### 🔍 Todas las Comparaciones Pareadas")
-                                    all_comparisons = calculate_all_pairwise_comparisons(variants)
-                                    
-                                    # Separar comparaciones vs control de comparaciones entre variantes
-                                    control_comparisons = [comp for comp in all_comparisons if comp['is_control_comparison']]
-                                    variant_comparisons = [comp for comp in all_comparisons if not comp['is_control_comparison']]
-                                    
-                                    if control_comparisons:
-                                        st.markdown("#### 📊 Comparaciones vs Control")
-                                        create_comparison_cards(control_comparisons, is_control_section=True)
-                                    
-                                    if variant_comparisons:
-                                        st.markdown("#### 🔄 Comparaciones entre Variantes")
-                                        create_comparison_cards(variant_comparisons, is_control_section=False)
-                        else:
-                            st.warning(f"⚠️ Se necesitan al menos 2 variantes para el análisis estadístico. Se encontraron {len(variants)} variantes.")
-                else:
-                    st.warning("⚠️ Se necesitan al menos 2 etapas del funnel para realizar el análisis estadístico")
-            else:
-                # Si no hay Funnel Stage, hacer análisis simple por variante
-                st.info("ℹ️ No se detectó columna 'Funnel Stage'. Realizando análisis simple por variante.")
-                
-                from utils.statistical_analysis import (
-                    prepare_variants_from_dataframe,
-                    calculate_ab_test,
-                    calculate_chi_square_test,
-                    calculate_all_pairwise_comparisons,
-                    create_metric_card,
-                    create_multivariant_card,
-                    create_comparison_matrix,
-                    create_comparison_cards,
-                    create_visualization
-                )
-                
-                variants = prepare_variants_from_dataframe(df_analysis)
-                
-                if len(variants) >= 2:
-                    # Análisis
-                    if len(variants) == 2:
-                        control = variants[0]
-                        treatment = variants[1]
-                        
-                        results = calculate_ab_test(
-                            control['n'], control['x'],
-                            treatment['n'], treatment['x']
-                        )
-                        
-                        comparison_data = {
-                            'baseline': control,
-                            'treatment': treatment
-                        }
-                        
-                        create_metric_card("Análisis por Variante", comparison_data, results, experiment_name_stat)
-                    else:
-                        # Multivariante - usar diseño de tabla
-                        chi_square_result = calculate_chi_square_test(variants)
-                        with st.expander("📊 Test Chi-cuadrado Global", expanded=True):
-                            st.markdown(f"""
-                            **Test Chi-cuadrado:** {'✓ Significativo' if chi_square_result['significant'] else '✗ No significativo'} 
-                            (p-value: {chi_square_result['p_value']:.4f}, χ²: {chi_square_result['chi2']:.2f})
-                            
-                            Este test evalúa si existe una diferencia significativa entre **todas** las variantes de forma global.
-                            """)
-                        
-                        # Mostrar tarjeta multivariante con diseño de tabla
-                        create_multivariant_card("Análisis por Variante", variants, experiment_name_stat, chi_square_result)
-                else:
-                    st.warning("⚠️ Se necesitan al menos 2 variantes para el análisis estadístico")
 
     with tab_help:
         st.subheader("❓ Guía de Uso")
@@ -1517,38 +1249,19 @@ def run_ui():
         - **Cada evento puede tener sus propios filtros** independientemente de los demás
         - **Los eventos se procesan en orden** como un funnel secuencial
 
-        #### 2. Actualizar streamlit/app.py
-        Agrega la importación en la sección de métricas (línea ~378):
-
-        ```python
-        # Importar métricas de [step]
-        try:
-            from [step]_metrics.[step]_metrics import (
-                NSR_[STEP],
-                WCR_[STEP],
-                [STEP]_A2C
-            )
-            
-            PREDEFINED_METRICS_QUICK.update({
-                "🎯 NSR [Step] (Next Step Rate)": NSR_[STEP],
-                "💰 WCR [Step] (Website Conversion Rate)": WCR_[STEP],
-                "🆕 [Step] A2C": [STEP]_A2C
-            })
-        except ImportError:
-            pass
-        ```
-
-        #### 3. Actualizar documentación
-        Agrega información en `metrics_info_quick` (línea ~398):
-
-        ```python
-        {
-            "Métrica": "🎯 NSR [Step]",
-            "Evento Inicial": "evento_inicial",
-            "Evento Final": "evento_final",
-            "Filtros": "DB"
-        }
-        ```
+        #### 2. ¡Listo! 🎉
+        **Ya no necesitas modificar `app.py`**. El sistema detecta automáticamente todas las métricas desde las carpetas de `metrics/`.
+        
+        Las métricas se cargan automáticamente y aparecerán en el dashboard con:
+        - ✅ Nombres descriptivos generados automáticamente
+        - ✅ Información de eventos y filtros
+        - ✅ Organización por categoría (baggage, seats, payment, etc.)
+        
+        **El sistema detecta automáticamente:**
+        - Archivos `*_metrics.py` en cualquier subcarpeta de `metrics/`
+        - Variables en mayúsculas que sean métricas válidas
+        - Genera nombres de display con emojis según la categoría
+        - Organiza y muestra toda la información automáticamente
 
         #### 📚 Documentación Completa
         Para más detalles, consulta:
